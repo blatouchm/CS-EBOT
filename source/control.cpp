@@ -277,7 +277,7 @@ void BotControl::AddBot(char name[32], const int skill, const int personality, c
 	CreateItem queueID;
 
 	// fill the holder
-	cstrcpy(queueID.name, name);
+	cstrncpy(queueID.name, name, sizeof(queueID.name));
 	queueID.skill = skill;
 	queueID.personality = personality;
 	queueID.team = team;

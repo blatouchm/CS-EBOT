@@ -2136,8 +2136,9 @@ void ServerDeactivate(void)
 	// any case, when the new map will be booting, ServerActivate() will be called, so we'll do
 	// the loading of new bots and the new BSP data parsing there.
 
-	// signal matrix calculation thread to stop
-	g_isMatrixCalculating = false;
+	// stop matrix calculation thread before map resources are reset
+	if (g_waypoint)
+		g_waypoint->StopMatrixCalculation();
 
 	secondTimer = 0.0f;
 	g_fakeCommandTimer = 0.0f;

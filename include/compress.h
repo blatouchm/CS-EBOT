@@ -290,10 +290,13 @@ public:
 					break;
 
 				bit = static_cast<uint8_t>(read);
-				buffer[bp++] = bit;
-
-				if (bp > bufferSize)
+				if (bp >= bufferSize)
+				{
+					fp.Close();
 					return -1;
+				}
+
+				buffer[bp++] = bit;
 
 				m_buffer[node++] = bit;
 				node &= (MAXBUF - 1);
@@ -312,10 +315,13 @@ public:
 				for (k = 0; k <= j; k++)
 				{
 					bit = m_buffer[(i + k) & (MAXBUF - 1)];
-					buffer[bp++] = bit;
-
-					if (bp > bufferSize)
+					if (bp >= bufferSize)
+					{
+						fp.Close();
 						return -1;
+					}
+
+					buffer[bp++] = bit;
 
 					m_buffer[node++] = bit;
 					node &= (MAXBUF - 1);

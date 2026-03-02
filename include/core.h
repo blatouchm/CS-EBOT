@@ -1031,6 +1031,7 @@ public:
   void InitPathMatrix(void);
   void SavePathMatrix(void);
   bool LoadPathMatrix(void);
+  void StopMatrixCalculation(void);
 
   bool Reachable(edict_t *entity, const int16_t index);
   bool IsNodeReachable(Vector src, Vector dest);

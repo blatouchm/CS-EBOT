@@ -45,10 +45,25 @@ ConVar ebot_waypoint_b("ebot_waypoint_b", "0");
 ConVar ebot_disable_path_matrix("ebot_disable_path_matrix", "0");
 ConVar ebot_analyze_post_processing("ebot_analyze_post_processing", "2");
 
+// matrix calculation is detached, so guard matrix memory lifetime with a mutex.
+static tthread::mutex calcMutex{};
+
+static void StopMatrixCalculationInternal(void)
+{
+	// Signal worker loop to stop early and wait until it fully releases shared data.
+	g_isMatrixCalculating = false;
+	calcMutex.lock();
+	calcMutex.unlock();
+}
+
 // this function initialize the waypoint sItructures..
 void Waypoint::Initialize(void)
 {
+	StopMatrixCalculationInternal();
+	g_isMatrixReady = false;
+
 	m_paths.Destroy();
+	m_distMatrix.Destroy();
 	g_numWaypoints = 0;
 	m_lastWaypoint = nullvec;
 }
@@ -1916,30 +1931,14 @@ void Waypoint::InitTypes(void)
 	AddZMCamps();
 }
 
-// forward declaration for mutex used in matrix calculation
-static tthread::mutex calcMutex{};
+void Waypoint::StopMatrixCalculation(void)
+{
+	StopMatrixCalculationInternal();
+}
 
 void Waypoint::InitPathMatrix(void)
 {
-	// signal any running calculation to stop
-	if (g_isMatrixCalculating)
-	{
-		g_isMatrixCalculating = false;
-		// wait for the calculation thread to finish (max 500ms to avoid freezing)
-		int timeout = 50; // 50 * 10ms = 500ms max wait
-		while (!calcMutex.try_lock() && timeout > 0)
-		{
-			timeout--;
-#ifdef PLATFORM_WIN32
-			Sleep(10);
-#else
-			usleep(10000);
-#endif
-		}
-
-		if (timeout > 0)
-			calcMutex.unlock();
-	}
+	StopMatrixCalculationInternal();
 
 	g_isMatrixReady = false;
 	m_distMatrix.Destroy();
@@ -2096,6 +2095,9 @@ void CalculateMatrix(void* arg)
 
 			while (heapSize > 0)
 			{
+				if (!g_isMatrixCalculating)
+					break;
+
 				u = heapId[1];
 				if (heapSize > 1)
 				{
@@ -2140,6 +2142,9 @@ void CalculateMatrix(void* arg)
 					}
 				}
 			}
+
+			if (!g_isMatrixCalculating)
+				break;
 
 			for (j = 0; j < num; ++j)
 			{
@@ -3768,8 +3773,11 @@ Waypoint::Waypoint(void)
 
 Waypoint::~Waypoint(void)
 {
+	StopMatrixCalculationInternal();
+
 	m_pathDisplayTime = 0.0f;
 	m_arrowDisplayTime = 0.0f;
+	g_isMatrixReady = false;
 
 	m_terrorPoints.Destroy();
 	m_zmHmPoints.Destroy();

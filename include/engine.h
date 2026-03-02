@@ -2732,7 +2732,12 @@ public:
 			}
 		}
 
-		cstrcat(buffer, "\n");
+		const int length = cstrlen(buffer);
+		if (length + 1 < static_cast<int>(sizeof(buffer)))
+		{
+			buffer[length] = '\n';
+			buffer[length + 1] = '\0';
+		}
 		g_engfuncs.pfnClientPrintf(m_ent, static_cast<PRINT_TYPE>(enginePrintType), buffer);
 	}
 

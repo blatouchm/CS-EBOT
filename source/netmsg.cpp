@@ -191,7 +191,11 @@ void NetworkMsg::Execute(void* p)
 			{
 				case 0:
 				{
-					cstrcpy(weaponProp.className, PTR_TO_STR(p));
+					const char* className = PTR_TO_STR(p);
+					if (className)
+						cstrncpy(weaponProp.className, className, sizeof(weaponProp.className));
+					else
+						weaponProp.className[0] = '\0';
 					break;
 				}
 				case 1:
@@ -251,9 +255,13 @@ void NetworkMsg::Execute(void* p)
 				{
 					if (m_bot)
 					{
-						if (state != 0)
-							m_bot->m_currentWeapon = id;
-						m_bot->m_ammoInClip[id] = PTR_TO_INT(p);
+						if (id >= 0 && id <= Const_MaxWeapons)
+						{
+							if (state != 0)
+								m_bot->m_currentWeapon = id;
+
+							m_bot->m_ammoInClip[id] = PTR_TO_INT(p);
+						}
 					}
 					break;
 				}
@@ -271,7 +279,7 @@ void NetworkMsg::Execute(void* p)
 				}
 				case 1:
 				{
-					if (m_bot)
+					if (m_bot && index >= 0 && index <= Const_MaxWeapons)
 						m_bot->m_ammo[index] = PTR_TO_INT(p);
 					break;
 				}
@@ -292,7 +300,7 @@ void NetworkMsg::Execute(void* p)
 				}
 				case 1:
 				{
-					if (m_bot)
+					if (m_bot && index >= 0 && index <= Const_MaxWeapons)
 						m_bot->m_ammo[index] = PTR_TO_INT(p);
 					break;
 				}

@@ -380,7 +380,10 @@ void FreeLibraryMemory(void)
 		g_botManager->Free();
 
 	if (g_waypoint)
+	{
+		g_waypoint->StopMatrixCalculation();
 		g_waypoint->Initialize();
+	}
 }
 
 void FakeClientCommand(edict_t* fakeClient, const char* format, ...)
