@@ -87,12 +87,26 @@ typedef unsigned short uint16_t;
 // Returns:
 //   Formatted buffer.
 //
-inline void FormatBuffer(char buffer[], const char* format, ...)
+template <size_t N>
+inline void FormatBuffer(char (&buffer)[N], const char* format, ...)
 {
 	va_list ap;
 	va_start(ap, format);
-	vsprintf(buffer, format, ap);
+	vsnprintf(buffer, N, format, ap);
 	va_end(ap);
+	buffer[N - 1] = '\0';
+}
+
+inline void FormatBuffer(char* buffer, const size_t bufferSize, const char* format, ...)
+{
+	if (!buffer || !bufferSize)
+		return;
+
+	va_list ap;
+	va_start(ap, format);
+	vsnprintf(buffer, bufferSize, format, ap);
+	va_end(ap);
+	buffer[bufferSize - 1] = '\0';
 }
 
 //
@@ -1041,7 +1055,7 @@ private:
 		cmemset(timeFormatStr, 0, sizeof(char) * 32);
 		time_t tick = time(&tick);
 		const tm* time = localtime(&tick);
-		sprintf(timeFormatStr, "%02i:%02i:%02i", time->tm_hour, time->tm_min, time->tm_sec);
+		snprintf(timeFormatStr, sizeof(timeFormatStr), "%02i:%02i:%02i", time->tm_hour, time->tm_min, time->tm_sec);
 		return &timeFormatStr[0];
 	}
 
@@ -1085,8 +1099,9 @@ public:
 	  va_list ap; \
 	  \
 	  va_start (ap, format); \
-	  vsprintf (buffer, format, ap); \
+	  vsnprintf (buffer, sizeof(buffer), format, ap); \
 	  va_end (ap); \
+	  buffer[sizeof(buffer) - 1] = '\0'; \
 	  \
 	  if (flags & LM_CONSOLE) \
 		 m_logger->EchoWithTag ("(%s): %s", logStr, buffer); \

@@ -41,7 +41,7 @@ void ebotVersionMSG(edict_t* entity = nullptr)
 	constexpr uint16_t bV16[4] = {static_cast<uint16_t>(buildVersion[0]), static_cast<uint16_t>(buildVersion[1]), static_cast<uint16_t>(buildVersion[2]), static_cast<uint16_t>(buildVersion[3])};
 
 	char versionData[1024];
-	sprintf(versionData,
+	snprintf(versionData, sizeof(versionData),
 		"------------------------------------------------\n"
 		"%s %s%s\n"
 		"Build: %u.%u.%u.%u\n"
@@ -621,7 +621,7 @@ inline void LoadEntityData(void)
 	Bot* bot;
 	edict_t* entity;
 
-	const int maxClients = engine->GetMaxClients();
+	const int maxClients = cmin(engine->GetMaxClients(), 32);
 	for (i = 0; i < maxClients; i++)
 	{
 		entity = INDEXENT(i + 1);
@@ -704,11 +704,7 @@ void InitConfig(void)
 
 				cstrtrim(line);
 				NameItem item;
-
-				char Name[32];
-				sprintf(Name, "%s", line);
-
-				cstrcpy(item.name, Name);
+				snprintf(item.name, sizeof(item.name), "%s", line);
 				item.isUsed = false;
 				g_botNames.Push(item);
 			}
@@ -930,10 +926,15 @@ void ClientUserInfoChanged(edict_t* ent, char* infobuffer)
 	if (IsNullString(password))
 		RETURN_META(MRES_IGNORED);
 
+	const int clientIndex = ENTINDEX(ent) - 1;
+	const int maxClients = cmin(engine->GetMaxClients(), 32);
+	if (clientIndex < 0 || clientIndex >= maxClients)
+		RETURN_META(MRES_IGNORED);
+
 	if (!cstrcmp(password, INFOKEY_VALUE(infobuffer, const_cast<char*>(passwordField))))
-		g_clients[ENTINDEX(ent) - 1].flags |= CFLAG_OWNER;
+		g_clients[clientIndex].flags |= CFLAG_OWNER;
 	else
-		g_clients[ENTINDEX(ent) - 1].flags &= ~CFLAG_OWNER;
+		g_clients[clientIndex].flags &= ~CFLAG_OWNER;
 
 	RETURN_META(MRES_IGNORED);
 }
@@ -956,9 +957,14 @@ void ClientCommand(edict_t* ent)
 	if (FNullEnt(ent))
 		RETURN_META(MRES_SUPERCEDE);
 
+	const int clientIndex = ENTINDEX(ent) - 1;
+	const int maxClients = cmin(engine->GetMaxClients(), 32);
+	if (clientIndex < 0 || clientIndex >= maxClients)
+		RETURN_META(MRES_SUPERCEDE);
+
 	static int fillServerTeam = 5;
 	static bool fillCommand = false;
-	if (!g_isFakeCommand && (ent == g_hostEntity || (g_clients[ENTINDEX(ent) - 1].flags & CFLAG_OWNER)))
+	if (!g_isFakeCommand && (ent == g_hostEntity || (g_clients[clientIndex].flags & CFLAG_OWNER)))
 	{
 		const char* command = CMD_ARGV(0);
 		const char* arg1 = CMD_ARGV(1);
@@ -967,9 +973,9 @@ void ClientCommand(edict_t* ent)
 			BotCommandHandler(ent, IsNullString(CMD_ARGV(1)) ? "help" : CMD_ARGV(1), CMD_ARGV(2), CMD_ARGV(3), CMD_ARGV(4), CMD_ARGV(5), CMD_ARGV(6));
 			RETURN_META(MRES_SUPERCEDE);
 		}
-		else if (!cstricmp(command, "menuselect") && !IsNullString(arg1) && g_clients[ENTINDEX(ent) - 1].menu)
+		else if (!cstricmp(command, "menuselect") && !IsNullString(arg1) && g_clients[clientIndex].menu)
 		{
-			Clients* client = &g_clients[ENTINDEX(ent) - 1];
+			Clients* client = &g_clients[clientIndex];
 			const int selection = catoi(arg1);
 			if (client->menu == &g_menus[12])
 			{

@@ -160,15 +160,15 @@ int BotControl::CreateBot(char name[32], int skill, int personality, const int t
 				{
 					nameUse = false;
 					botName.isUsed = true;
-					sprintf(outputName, "%s", botName.name);
+					snprintf(outputName, sizeof(outputName), "%s", botName.name);
 				}
 			}
 		}
 		else
-			sprintf(outputName, "e-bot %i", crandomint(1, 9999)); // just pick ugly random name
+			snprintf(outputName, sizeof(outputName), "e-bot %i", crandomint(1, 9999)); // just pick ugly random name
 	}
 	else
-		sprintf(outputName, "%s", name);
+		snprintf(outputName, sizeof(outputName), "%s", name);
 
 	char botName[64];
 	if (ebot_nametag.GetInt() == 2 && addTag)
@@ -187,6 +187,13 @@ int BotControl::CreateBot(char name[32], int skill, int personality, const int t
 	}
 
 	const int index = ENTINDEX(bot) - 1;
+	if (index < 0 || index >= 32)
+	{
+		AddLogEntry(Log::Error, "CreateFakeClient returned out-of-range index: %d", index);
+		bot->v.flags |= FL_KILLME;
+		return -2;
+	}
+
 	if (m_bots[index])
 	{
 		m_bots[index]->m_navNode.Destroy();
@@ -397,7 +404,7 @@ void BotControl::FillServer(int selection, const int personality, const int skil
 
 	const int toAdd = numToAdd == -1 ? (maxClients - (getHumansNum + getBotsNum)) : numToAdd;
 	int i, randomizedSkill;
-	for (i = 0; i <= toAdd; i++)
+	for (i = 0; i < toAdd; i++)
 	{
 		// since we got constant skill from menu (since creation process call automatic), we need to manually randomize skill here, on given skill there
 		randomizedSkill = 0;
@@ -461,23 +468,38 @@ void BotControl::RemoveMenu(edict_t* ent, const int selection)
 	char tempBuffer[512], buffer[512];
 	cmemset(tempBuffer, 0, sizeof(tempBuffer));
 	cmemset(buffer, 0, sizeof(buffer));
+	int bufferLength = 0;
 
 	int i;
 	int validSlots = (selection == 4) ? (1 << 9) : ((1 << 8) | (1 << 9));
 	for (i = ((selection - 1) * 8); i < selection * 8; ++i)
 	{
+		const int itemNumber = i - ((selection - 1) * 8) + 1;
+		int writtenChars = 0;
 		if (m_bots[i] && !FNullEnt(m_bots[i]->m_myself))
 		{
 			validSlots |= 1 << (i - ((selection - 1) * 8));
-			sprintf(buffer, "%s %1.1d. %s%s\n", buffer, i - ((selection - 1) * 8) + 1, GetEntityName(m_bots[i]->m_myself), GetTeam(m_bots[i]->m_myself) == Team::Counter ? " \\y(CT)\\w" : " \\r(T)\\w");
+			writtenChars = snprintf(buffer + bufferLength, sizeof(buffer) - bufferLength, " %1.1d. %s%s\n",
+				itemNumber, GetEntityName(m_bots[i]->m_myself), GetTeam(m_bots[i]->m_myself) == Team::Counter ? " \\y(CT)\\w" : " \\r(T)\\w");
 		}
 		else if (!FNullEnt(g_clients[i].ent))
-			sprintf(buffer, "%s %1.1d.\\d %s (Not E-BOT) \\w\n", buffer, i - ((selection - 1) * 8) + 1, GetEntityName(g_clients[i].ent));
+			writtenChars = snprintf(buffer + bufferLength, sizeof(buffer) - bufferLength, " %1.1d.\\d %s (Not E-BOT) \\w\n", itemNumber, GetEntityName(g_clients[i].ent));
 		else
-			sprintf(buffer, "%s %1.1d.\\d Null \\w\n", buffer, i - ((selection - 1) * 8) + 1);
+			writtenChars = snprintf(buffer + bufferLength, sizeof(buffer) - bufferLength, " %1.1d.\\d Null \\w\n", itemNumber);
+
+		if (writtenChars < 0)
+			break;
+
+		if (writtenChars >= static_cast<int>(sizeof(buffer) - bufferLength))
+		{
+			bufferLength = static_cast<int>(sizeof(buffer)) - 1;
+			break;
+		}
+
+		bufferLength += writtenChars;
 	}
 
-	sprintf(tempBuffer, "\\yE-BOT Remove Menu (%d/4):\\w\n\n%s\n%s 0. Back", selection, buffer, (selection == 4) ? "" : " 9. More...\n");
+	snprintf(tempBuffer, sizeof(tempBuffer), "\\yE-BOT Remove Menu (%d/4):\\w\n\n%s\n%s 0. Back", selection, buffer, (selection == 4) ? "" : " 9. More...\n");
 
 	switch (selection)
 	{
@@ -735,21 +757,21 @@ Bot::~Bot(void)
 	int16_t i;
 	for (i = 0; i < g_botNames.Size(); i++)
 	{
+		if (!cstrcmp(g_botNames[i].name, name))
+		{
+			g_botNames[i].isUsed = false;
+			break;
+		}
+
+		snprintf(botName, sizeof(botName), "[E-BOT] %s", g_botNames[i].name);
 		if (!cstrcmp(botName, name))
 		{
 			g_botNames[i].isUsed = false;
 			break;
 		}
 
-		sprintf(botName, "[E-BOT] %s", g_botNames[i].name);
-		if (!cstrcmp(g_botNames[i].name, name))
-		{
-			g_botNames[i].isUsed = false;
-			break;
-		}
-
-		sprintf(botName, "[E-BOT] %s (%i)", g_botNames[i].name, m_skill);
-		if (!cstrcmp(g_botNames[i].name, name))
+		snprintf(botName, sizeof(botName), "[E-BOT] %s (%i)", g_botNames[i].name, m_skill);
+		if (!cstrcmp(botName, name))
 		{
 			g_botNames[i].isUsed = false;
 			break;

@@ -2708,8 +2708,9 @@ public:
 		va_list ap;
 
 		va_start(ap, format);
-		vsprintf(buffer, format, ap);
+		vsnprintf(buffer, sizeof(buffer), format, ap);
 		va_end(ap);
+		buffer[sizeof(buffer) - 1] = '\0';
 
 		int enginePrintType = 0;
 		switch (printType)

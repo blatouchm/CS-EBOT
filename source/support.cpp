@@ -319,10 +319,14 @@ void DisplayMenuToClient(edict_t* ent, MenuText* menu)
 		return;
 
 	const int clientIndex = ENTINDEX(ent) - 1;
+	const int maxClients = cmin(engine->GetMaxClients(), 32);
+	if (clientIndex < 0 || clientIndex >= maxClients)
+		return;
+
 	if (menu && menu->menuText)
 	{
 		char tempText[1024];
-		cstrcpy(tempText, menu->menuText);
+		snprintf(tempText, sizeof(tempText), "%s", menu->menuText);
 		Replace(tempText, '\v', '\n');
 
 		int i;
@@ -407,15 +411,22 @@ void FakeClientCommand(edict_t* fakeClient, const char* format, ...)
 		while (stop <length && command[stop] != ';')
 			stop++;
 
-		if (command[stop - 1] == '\n')
+		if (stop > start && command[stop - 1] == '\n')
 			stop--;
 
 		// copy current command segment to fakeArgv
-		argLength = stop - start + 1;
-		for (i = 0; i < argLength && i < 256; ++i)
+		argLength = stop - start;
+		if (argLength <= 0)
+		{
+			start = stop + 1;
+			continue;
+		}
+
+		const int copyLength = cmin(argLength, static_cast<int>(sizeof(g_fakeArgv)) - 1);
+		for (i = 0; i < copyLength; ++i)
 			g_fakeArgv[i] = command[start + i];
 
-		g_fakeArgv[argLength] = '\0';
+		g_fakeArgv[copyLength] = '\0';
 
 		// process arguments in segment
 		argc = 0;
@@ -463,6 +474,11 @@ char* GetField(const char* string, const int fieldId, const bool endLine)
 	// our function here, which does the same thing, when the caller is a bot.
 
 	static char field[256];
+	if (IsNullString(string))
+	{
+		field[0] = 0;
+		return &field[0];
+	}
 
 	// reset the string
 	cmemset(field, 0, sizeof(field));
@@ -503,10 +519,12 @@ char* GetField(const char* string, const int fieldId, const bool endLine)
 		// is this field we just processed the wanted one ?
 		if (fieldCount == fieldId)
 		{
-			for (i = start; i <= stop; i++)
-				field[i - start] = string[i]; // store the field value in a string
+			const int fieldSize = stop - start + 1;
+			const int copyLength = cclamp(fieldSize, 0, static_cast<int>(sizeof(field)) - 1);
+			for (i = 0; i < copyLength; i++)
+				field[i] = string[start + i]; // store the field value in a string
 
-			field[i - start] = 0; // terminate the string
+			field[copyLength] = 0; // terminate the string
 			break; // and stop parsing
 		}
 
@@ -514,7 +532,11 @@ char* GetField(const char* string, const int fieldId, const bool endLine)
 	}
 
 	if (endLine)
-		field[cstrlen(field) - 1] = 0;
+	{
+		const int fieldLength = cstrlen(field);
+		if (fieldLength > 0)
+			field[fieldLength - 1] = 0;
+	}
 
 	cstrtrim(field);
 	return &field[0]; // returns the wanted field
@@ -839,8 +861,9 @@ void HudMessage(edict_t* ent, const bool toCenter, const Color& rgb, char* forma
 	char buffer[1024];
 
 	va_start(ap, format);
-	vsprintf(buffer, format, ap);
+	vsnprintf(buffer, sizeof(buffer), format, ap);
 	va_end(ap);
+	buffer[sizeof(buffer) - 1] = '\0';
 
 	MESSAGE_BEGIN(MSG_ONE_UNRELIABLE, SVC_TEMPENTITY, nullptr, ent);
 	WRITE_BYTE(TE_TEXTMESSAGE);
@@ -871,8 +894,9 @@ void ServerPrint(const char* format, ...)
 
 	va_list ap;
 	va_start(ap, format);
-	vsprintf(string, format, ap);
+	vsnprintf(string, sizeof(string), format, ap);
 	va_end(ap);
+	string[sizeof(string) - 1] = '\0';
 
 	FormatBuffer(string2, "[%s] %s\n", PRODUCT_LOGTAG, string);
 	SERVER_PRINT(string2);
@@ -885,8 +909,9 @@ void ServerPrintNoTag(const char* format, ...)
 
 	va_list ap;
 	va_start(ap, format);
-	vsprintf(string, format, ap);
+	vsnprintf(string, sizeof(string), format, ap);
 	va_end(ap);
+	string[sizeof(string) - 1] = '\0';
 
 	FormatBuffer(string2, "%s\n", string);
 	SERVER_PRINT(string2);
@@ -898,12 +923,13 @@ void CenterPrint(const char* format, ...)
 
 	va_list ap;
 	va_start(ap, format);
-	vsprintf(string, format, ap);
+	vsnprintf(string, sizeof(string), format, ap);
 	va_end(ap);
+	string[sizeof(string) - 1] = '\0';
 
 	if (IsDedicatedServer())
 	{
-		ServerPrint(string);
+		ServerPrint("%s", string);
 		return;
 	}
 
@@ -921,16 +947,22 @@ void ChatPrint(const char* format, ...)
 
 	va_list ap;
 	va_start(ap, format);
-	vsprintf(string, format, ap);
+	vsnprintf(string, sizeof(string), format, ap);
 	va_end(ap);
+	string[sizeof(string) - 1] = '\0';
 
 	if (IsDedicatedServer())
 	{
-		ServerPrint(string);
+		ServerPrint("%s", string);
 		return;
 	}
 
-	cstrcat(string, "\n");
+	const size_t stringLength = cstrlen(string);
+	if (stringLength + 1 < sizeof(string))
+	{
+		string[stringLength] = '\n';
+		string[stringLength + 1] = '\0';
+	}
 
 	MESSAGE_BEGIN(MSG_BROADCAST, g_netMsg->GetId(NETMSG_TEXTMSG));
 	WRITE_BYTE(HUD_PRINTTALK);
@@ -947,20 +979,26 @@ void ClientPrint(edict_t* ent, int dest, const char* format, ...)
 
 	va_list ap;
 	va_start(ap, format);
-	vsprintf(string, format, ap);
+	vsnprintf(string, sizeof(string), format, ap);
 	va_end(ap);
+	string[sizeof(string) - 1] = '\0';
 
 	if (FNullEnt(ent) || ent == g_hostEntity)
 	{
 		if (dest & 0x3ff)
-			ServerPrint(string);
+			ServerPrint("%s", string);
 		else
-			ServerPrintNoTag(string);
+			ServerPrintNoTag("%s", string);
 
 		return;
 	}
 
-	cstrcat(string, "\n");
+	const size_t printLength = cstrlen(string);
+	if (printLength + 1 < sizeof(string))
+	{
+		string[printLength] = '\n';
+		string[printLength + 1] = '\0';
+	}
 
 	if (dest & 0x3ff)
 	{
@@ -991,8 +1029,9 @@ void ServerCommand(const char* format, ...)
 	// concatenate all the arguments in one string
 	va_list ap;
 	va_start(ap, format);
-	vsprintf(string, format, ap);
+	vsnprintf(string, sizeof(string), format, ap);
 	va_end(ap);
+	string[sizeof(string) - 1] = '\0';
 
 	FormatBuffer(string2, "%s\n", string);
 	SERVER_COMMAND(string2); // execute command
@@ -1039,7 +1078,7 @@ bool OpenConfig(const char* fileName, const char* errorIfNotExists, File* outFil
 char* GetWaypointDir(void)
 {
 	static char wpDir[1024];
-	sprintf(wpDir, "%s/addons/ebot/waypoints/", GetModName());
+	snprintf(wpDir, sizeof(wpDir), "%s/addons/ebot/waypoints/", GetModName());
 	return &wpDir[0];
 }
 
@@ -1098,8 +1137,9 @@ void AddLogEntry(const Log logLevel, const char* format, ...)
 
 	va_list ap;
 	va_start(ap, format);
-	vsprintf(buffer, format, ap);
+	vsnprintf(buffer, sizeof(buffer), format, ap);
 	va_end(ap);
+	buffer[sizeof(buffer) - 1] = '\0';
 
 	switch (logLevel)
 	{
@@ -1131,7 +1171,7 @@ void AddLogEntry(const Log logLevel, const char* format, ...)
 		}
 	}
 
-	sprintf(logLine, "%s%s", levelString, buffer);
+	snprintf(logLine, sizeof(logLine), "%s%s", levelString, buffer);
 	MOD_AddLogEntry(-1, logLine);
 }
 
@@ -1143,14 +1183,14 @@ void MOD_AddLogEntry(const int mod, char* format)
 	if (mod == -1)
 	{
 		int i;
-		sprintf(modName, "E-BOT");
+		snprintf(modName, sizeof(modName), "E-BOT");
 		constexpr int buildVersion[4] = {PRODUCT_VERSION_DWORD};
 		for (i = 0; i < 4; i++)
 			mod_bV16[i] = static_cast<uint16_t>(buildVersion[i]);
 	}
 
 	ServerPrintNoTag("[%s Log] %s", modName, format);
-	sprintf(buildVersionName, "%s_build_%u_%u_%u_%u.txt", modName, mod_bV16[0], mod_bV16[1], mod_bV16[2], mod_bV16[3]);
+	snprintf(buildVersionName, sizeof(buildVersionName), "%s_build_%u_%u_%u_%u.txt", modName, mod_bV16[0], mod_bV16[1], mod_bV16[2], mod_bV16[3]);
 
 	// if logs folder deleted, it will result a crash... so create it again before writing logs...
 	char buffer[1024];
@@ -1178,7 +1218,7 @@ void MOD_AddLogEntry(const int mod, char* format)
 	time_t tickTime = time(&tickTime);
 	tm* time = localtime(&tickTime);
 
-	sprintf(logLine, "[%02d:%02d:%02d] %s", time->tm_hour, time->tm_min, time->tm_sec, format);
+	snprintf(logLine, sizeof(logLine), "[%02d:%02d:%02d] %s", time->tm_hour, time->tm_min, time->tm_sec, format);
 	fp.Printf("%s\n", logLine);
 
 	if (mod != -1)

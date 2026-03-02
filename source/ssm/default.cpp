@@ -50,7 +50,11 @@ void Bot::DefaultUpdate(void)
 				if (m_isSlowThink && m_navNode.HasNext() && (g_waypoint->m_paths[m_navNode.Last()].origin - pev->origin).GetLengthSquared() < (g_waypoint->m_paths[m_navNode.Last()].origin - m_nearestEnemy->v.origin).GetLengthSquared())
 				{
 					KnifeAttack();
-					int16_t index = g_clients[ENTINDEX(m_nearestEnemy) - 1].wp;
+					int16_t index = -1;
+					const int maxClients = cmin(engine->GetMaxClients(), 32);
+					const int enemyIndex = ENTINDEX(m_nearestEnemy) - 1;
+					if (enemyIndex >= 0 && enemyIndex < maxClients)
+						index = g_clients[enemyIndex].wp;
 					if (IsValidWaypoint(index))
 					{
 						m_currentGoalIndex = index;
@@ -71,7 +75,11 @@ void Bot::DefaultUpdate(void)
 			}
 			else
 			{
-				int16_t index = g_clients[ENTINDEX(m_nearestEnemy) - 1].wp;
+				int16_t index = -1;
+				const int maxClients = cmin(engine->GetMaxClients(), 32);
+				const int enemyIndex = ENTINDEX(m_nearestEnemy) - 1;
+				if (enemyIndex >= 0 && enemyIndex < maxClients)
+					index = g_clients[enemyIndex].wp;
 				if (IsValidWaypoint(index))
 				{
 					m_currentGoalIndex = index;

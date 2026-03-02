@@ -1468,7 +1468,7 @@ void Bot::FindShortestPath(int16_t &srcIndex, int16_t &destIndex) {
   openList.InsertLowest(srcIndex, srcWaypoint.f);
   while (!openList.IsEmpty()) {
     currentIndex = openList.RemoveLowest();
-    if (currentIndex == srcIndex) {
+    if (currentIndex == destIndex) {
       int16_t pathLength = 0;
       int16_t tempIndex = currentIndex;
       while (IsValidWaypoint(tempIndex)) {

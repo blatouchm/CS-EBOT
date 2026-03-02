@@ -154,10 +154,16 @@ void Bot::FindFriendsAndEnemiens(void)
 					}
 
 					m_enemyDistance = distance;
-					if (needTarget || m_enemyDistance < GetDistance(myWP, g_clients[ENTINDEX(m_nearestEnemy) - 1].wp))
+					if (needTarget || FNullEnt(m_nearestEnemy))
 						m_nearestEnemy = client.ent;
+					else
+					{
+						const int maxClients = cmin(engine->GetMaxClients(), 32);
+						const int nearestEnemyIndex = ENTINDEX(m_nearestEnemy) - 1;
+						if (nearestEnemyIndex < 0 || nearestEnemyIndex >= maxClients || m_enemyDistance < GetDistance(myWP, g_clients[nearestEnemyIndex].wp))
+							m_nearestEnemy = client.ent;
+					}
 
-					m_nearestEnemy = client.ent;
 					m_hasEnemiesNear = true;
 				}
 			}

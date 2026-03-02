@@ -223,7 +223,12 @@ bool Bot::CheckReachable(void) {
   if (Math::FltZero(m_enemyDistance))
     return m_isEnemyReachable = true;
 
-  const int nearest = g_clients[ENTINDEX(m_nearestEnemy) - 1].wp;
+  const int enemyIndex = ENTINDEX(m_nearestEnemy) - 1;
+  const int maxClients = cmin(engine->GetMaxClients(), 32);
+  if (enemyIndex < 0 || enemyIndex >= maxClients)
+    return m_isEnemyReachable = false;
+
+  const int nearest = g_clients[enemyIndex].wp;
   if (m_currentWaypointIndex == nearest || m_prevWptIndex[0] == nearest)
     return m_isEnemyReachable = true;
 
@@ -1269,25 +1274,25 @@ void Bot::DebugModeMsg(void) {
       goal = m_currentGoalIndex;
 
       char processName[80];
-      sprintf(processName, "%s", GetProcessName(m_currentProcess));
+      snprintf(processName, sizeof(processName), "%s", GetProcessName(m_currentProcess));
 
       char rememberedProcessName[80];
-      sprintf(rememberedProcessName, "%s", GetProcessName(m_rememberedProcess));
+      snprintf(rememberedProcessName, sizeof(rememberedProcessName), "%s", GetProcessName(m_rememberedProcess));
 
       char weaponName[80], botType[32];
       char enemyName[80], friendName[80];
 
       if (IsAlive(m_nearestEntity) && m_entityDistance < m_enemyDistance)
-        sprintf(enemyName, "%s", GetEntityName(m_nearestEntity));
+        snprintf(enemyName, sizeof(enemyName), "%s", GetEntityName(m_nearestEntity));
       else if (IsAlive(m_nearestEnemy))
-        sprintf(enemyName, "%s", GetEntityName(m_nearestEnemy));
+        snprintf(enemyName, sizeof(enemyName), "%s", GetEntityName(m_nearestEnemy));
       else
-        sprintf(enemyName, "%s", GetEntityName(nullptr));
+        snprintf(enemyName, sizeof(enemyName), "%s", GetEntityName(nullptr));
 
       if (IsAlive(m_nearestFriend))
-        sprintf(friendName, "%s", GetEntityName(m_nearestFriend));
+        snprintf(friendName, sizeof(friendName), "%s", GetEntityName(m_nearestFriend));
       else
-        sprintf(friendName, "%s", GetEntityName(nullptr));
+        snprintf(friendName, sizeof(friendName), "%s", GetEntityName(nullptr));
 
       char weaponCount = 0;
       WeaponSelect *selectTab = &g_weaponSelect[0];
@@ -1296,7 +1301,7 @@ void Bot::DebugModeMsg(void) {
         weaponCount++;
 
       // set the bot type
-      sprintf(botType, "%s%s%s",
+      snprintf(botType, sizeof(botType), "%s%s%s",
               m_personality == Personality::Rusher ? "Rusher" : "",
               m_personality == Personality::Careful ? "Careful" : "",
               m_personality == Personality::Normal ? "Normal" : "");
@@ -1305,29 +1310,29 @@ void Bot::DebugModeMsg(void) {
         // prevent printing unknown message from known weapons
         switch (m_currentWeapon) {
         case Weapon::HeGrenade: {
-          sprintf(weaponName, "weapon_hegrenade");
+          snprintf(weaponName, sizeof(weaponName), "weapon_hegrenade");
           break;
         }
         case Weapon::FbGrenade: {
-          sprintf(weaponName, "weapon_flashbang");
+          snprintf(weaponName, sizeof(weaponName), "weapon_flashbang");
           break;
         }
         case Weapon::SmGrenade: {
-          sprintf(weaponName, "weapon_smokegrenade");
+          snprintf(weaponName, sizeof(weaponName), "weapon_smokegrenade");
           break;
         }
         case Weapon::C4: {
-          sprintf(weaponName, "weapon_c4");
+          snprintf(weaponName, sizeof(weaponName), "weapon_c4");
           break;
         }
         default:
-          sprintf(weaponName, "Unknown! (%d)", m_currentWeapon);
+          snprintf(weaponName, sizeof(weaponName), "Unknown! (%d)", m_currentWeapon);
         }
       } else
-        sprintf(weaponName, "%s", selectTab[weaponCount].weaponName);
+        snprintf(weaponName, sizeof(weaponName), "%s", selectTab[weaponCount].weaponName);
 
       char outputBuffer[512];
-      sprintf(outputBuffer,
+      snprintf(outputBuffer, sizeof(outputBuffer),
               "\n\n\n\n\n\n\n"
               "\n %s \n Process: %s (%i) RE-Process: %s (%i) \n"
               "Weapon: %s  Clip: %d  Ammo: %d \n"

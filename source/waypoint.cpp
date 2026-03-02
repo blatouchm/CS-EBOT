@@ -2458,11 +2458,19 @@ bool Waypoint::Load(void)
 	{
 		WaypointHeader header;
 		fp.Read(&header, sizeof(header));
+		if (header.pointNumber < 0 || header.pointNumber > Const_MaxWaypoints)
+		{
+			g_numWaypoints = 0;
+			snprintf(m_infoBuffer, sizeof(m_infoBuffer), "Waypoint file contains invalid point count: %d", header.pointNumber);
+			AddLogEntry(Log::Error, m_infoBuffer);
+			fp.Close();
+			return false;
+		}
 
 		if (header.fileVersion > static_cast<int32_t>(FV_WAYPOINT))
 		{
 			g_numWaypoints = 0;
-			sprintf(m_infoBuffer, "Waypoint version is too high, update your ebot!");
+			snprintf(m_infoBuffer, sizeof(m_infoBuffer), "Waypoint version is too high, update your ebot!");
 		}
 		else if (header.fileVersion == static_cast<int32_t>(FV_WAYPOINT))
 		{
@@ -2596,9 +2604,9 @@ bool Waypoint::Load(void)
 		}
 
 		if (!cstrncmp(header.author, "EfeDursun125", 12))
-			sprintf(m_infoBuffer, "Using Official Waypoint File By: %s", header.author);
+			snprintf(m_infoBuffer, sizeof(m_infoBuffer), "Using Official Waypoint File By: %s", header.author);
 		else
-			sprintf(m_infoBuffer, "Using Waypoint File By: %s", header.author);
+			snprintf(m_infoBuffer, sizeof(m_infoBuffer), "Using Waypoint File By: %s", header.author);
 
 		fp.Close();
 		tryDownload = 0;
@@ -2606,7 +2614,7 @@ bool Waypoint::Load(void)
 	else if (tryDownload < 5 && ebot_download_waypoints.GetBool() && Download())
 	{
 		Load();
-		sprintf(m_infoBuffer, "%s.ewp is downloaded from the internet", GetMapName());
+		snprintf(m_infoBuffer, sizeof(m_infoBuffer), "%s.ewp is downloaded from the internet", GetMapName());
 		tryDownload = 0;
 	}
 	else
@@ -2622,7 +2630,7 @@ bool Waypoint::Load(void)
 			m_zmHmPoints.Destroy();
 			m_hmMeshPoints.Destroy();
 			g_numWaypoints = 0;
-			sprintf(m_infoBuffer, "%s.ewp does not exist, pleasue use 'ebot wp analyze' for create waypoints! (dont forget using 'ebot wp analyzeoff' when finished)", GetMapName());
+			snprintf(m_infoBuffer, sizeof(m_infoBuffer), "%s.ewp does not exist, pleasue use 'ebot wp analyze' for create waypoints! (dont forget using 'ebot wp analyzeoff' when finished)", GetMapName());
 			AddLogEntry(Log::Error, m_infoBuffer);
 		}
 
@@ -2665,11 +2673,11 @@ void Waypoint::Save(void)
 
 	char waypointAuthor[32];
 	if (!FNullEnt(g_hostEntity))
-		sprintf(waypointAuthor, "%s", GetEntityName(g_hostEntity));
+		snprintf(waypointAuthor, sizeof(waypointAuthor), "%s", GetEntityName(g_hostEntity));
 	else
-		sprintf(waypointAuthor, "E-Bot Waypoint Analyzer");
+		snprintf(waypointAuthor, sizeof(waypointAuthor), "E-Bot Waypoint Analyzer");
 
-	cstrcpy(header.author, waypointAuthor);
+	snprintf(header.author, sizeof(header.author), "%s", waypointAuthor);
 
 	// remember the original waypoint author
 	File rf(waypointFilePath, "rb");
@@ -2943,7 +2951,7 @@ char* Waypoint::GetWaypointInfo(const int16_t id)
 		}
 	}
 	
-	sprintf(messageBuffer, "%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s", 
+	snprintf(messageBuffer, sizeof(messageBuffer), "%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s", 
 		(!path->flags && !jumpPoint) ? "(none)" : "", 
 		path->flags & WAYPOINT_LIFT ? "LIFT " : "", 
 		path->flags & WAYPOINT_CROUCH ? "CROUCH " : "", 
@@ -3310,46 +3318,82 @@ void Waypoint::ShowWaypointMsg(void)
 
 		// display some information
 		char tempMessage[4096];
-		int length;
+		tempMessage[0] = '\0';
+		int length = 0;
+		int writtenChars = 0;
 
 		// show the information about that point
 		if (path->flags & WAYPOINT_SPECIFICGRAVITY)
 		{
-			length = sprintf(tempMessage, "\n\n\n\n\n\n\n	Waypoint Information:\n\n"
+			writtenChars = snprintf(tempMessage, sizeof(tempMessage), "\n\n\n\n\n\n\n	Waypoint Information:\n\n"
 				"	  Waypoint %d of %d, Radius: %d\n"
 				"	  Flags: %s\n\n	  %s %f\n	  Waypoint Gravity: %f", nearestIndex, g_numWaypoints, path->radius, GetWaypointInfo(nearestIndex), "Your Gravity:", (g_hostEntity->v.gravity * 800.0f), path->gravity);
 		}
 		else if (path->flags & WAYPOINT_ZMHMCAMP || path->flags & WAYPOINT_HMCAMPMESH)
 		{
-			length = sprintf(tempMessage, "\n\n\n\n\n\n\n	Waypoint Information:\n\n"
+			writtenChars = snprintf(tempMessage, sizeof(tempMessage), "\n\n\n\n\n\n\n	Waypoint Information:\n\n"
 				"	  Waypoint %d of %d, Radius: %d\n"
 				"	  Flags: %s\n\n	  %s %d\n", nearestIndex, g_numWaypoints, path->radius, GetWaypointInfo(nearestIndex), "Human Camp Mesh ID:", static_cast<int> (path->mesh));
 		}
 		else
 		{
-			length = sprintf(tempMessage, "\n\n\n\n\n\n\n	Waypoint Information:\n\n"
+			writtenChars = snprintf(tempMessage, sizeof(tempMessage), "\n\n\n\n\n\n\n	Waypoint Information:\n\n"
 				"	  Waypoint %d of %d, Radius: %d\n"
 				"	  Flags: %s\n\n", nearestIndex, g_numWaypoints, path->radius, GetWaypointInfo(nearestIndex));
+		}
+
+		if (writtenChars > 0)
+		{
+			if (writtenChars >= static_cast<int>(sizeof(tempMessage)))
+				length = static_cast<int>(sizeof(tempMessage)) - 1;
+			else
+				length = writtenChars;
 		}
 
 		// check if we need to show the cached point index
 		if (IsValidWaypoint(m_cacheWaypointIndex))
 		{
-			length += sprintf(&tempMessage[length], "\n	Cached Waypoint Information:\n\n"
-				"	  Waypoint %d of %d, Radius: %d\n"
-				"	  Waypoint Flags: %s\n"
-				"	  Pathfinding Distance: %i\n"
-				"	  Direct Line Distance: %i\n", m_cacheWaypointIndex, g_numWaypoints, m_paths[m_cacheWaypointIndex].radius, GetWaypointInfo(m_cacheWaypointIndex), GetFacingDistance(nearestIndex, m_cacheWaypointIndex), GetDirectDistance(nearestIndex, m_cacheWaypointIndex));
+			const int remainingChars = static_cast<int>(sizeof(tempMessage)) - length;
+			if (remainingChars > 0)
+			{
+				writtenChars = snprintf(tempMessage + length, remainingChars, "\n	Cached Waypoint Information:\n\n"
+					"	  Waypoint %d of %d, Radius: %d\n"
+					"	  Waypoint Flags: %s\n"
+					"	  Pathfinding Distance: %i\n"
+					"	  Direct Line Distance: %i\n", m_cacheWaypointIndex, g_numWaypoints, m_paths[m_cacheWaypointIndex].radius, GetWaypointInfo(m_cacheWaypointIndex), GetFacingDistance(nearestIndex, m_cacheWaypointIndex), GetDirectDistance(nearestIndex, m_cacheWaypointIndex));
+
+				if (writtenChars > 0)
+				{
+					if (writtenChars >= remainingChars)
+						length = static_cast<int>(sizeof(tempMessage)) - 1;
+					else
+						length += writtenChars;
+				}
+			}
 		}
 
 		// check if we need to show the facing point index, only if no menu to show
-		if (IsValidWaypoint(m_facingAtIndex) && !g_clients[ENTINDEX(g_hostEntity) - 1].menu)
+		const int hostIndex = ENTINDEX(g_hostEntity) - 1;
+		const int maxClients = cmin(engine->GetMaxClients(), 32);
+		if (IsValidWaypoint(m_facingAtIndex) && hostIndex >= 0 && hostIndex < maxClients && !g_clients[hostIndex].menu)
 		{
-			length += sprintf(&tempMessage[length], "\n	Facing Waypoint Information:\n\n"
-				"	  Waypoint %d of %d, Radius: %d\n"
-				"	  Waypoint Flags: %s\n"
-				"	  Pathfinding Distance: %i\n"
-				"	  Direct Line Distance: %i\n", m_facingAtIndex, g_numWaypoints, m_paths[m_facingAtIndex].radius, GetWaypointInfo(m_facingAtIndex), GetFacingDistance(nearestIndex, m_facingAtIndex), GetDirectDistance(nearestIndex, m_facingAtIndex));
+			const int remainingChars = static_cast<int>(sizeof(tempMessage)) - length;
+			if (remainingChars > 0)
+			{
+				writtenChars = snprintf(tempMessage + length, remainingChars, "\n	Facing Waypoint Information:\n\n"
+					"	  Waypoint %d of %d, Radius: %d\n"
+					"	  Waypoint Flags: %s\n"
+					"	  Pathfinding Distance: %i\n"
+					"	  Direct Line Distance: %i\n", m_facingAtIndex, g_numWaypoints, m_paths[m_facingAtIndex].radius, GetWaypointInfo(m_facingAtIndex), GetFacingDistance(nearestIndex, m_facingAtIndex), GetDirectDistance(nearestIndex, m_facingAtIndex));
+
+				if (writtenChars > 0)
+				{
+					if (writtenChars >= remainingChars)
+						length = static_cast<int>(sizeof(tempMessage)) - 1;
+					else
+						length += writtenChars;
+				}
+			}
 		}
 
 		// draw entire message

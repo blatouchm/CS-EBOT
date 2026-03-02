@@ -140,9 +140,16 @@ void Engine::PrintServer(const char* format, ...)
 	char buffer[1024];
 	va_list ap;
 	va_start(ap, format);
-	vsprintf(buffer, format, ap);
+	vsnprintf(buffer, sizeof(buffer), format, ap);
 	va_end(ap);
-	cstrcat(buffer, "\n");
+	buffer[sizeof(buffer) - 1] = '\0';
+
+	const size_t length = cstrlen(buffer);
+	if (length + 1 < sizeof(buffer))
+	{
+		buffer[length] = '\n';
+		buffer[length + 1] = '\0';
+	}
 	g_engfuncs.pfnServerPrint(buffer);
 }
 
