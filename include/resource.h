@@ -28,9 +28,9 @@
 #define PRODUCT_DEV_VERSION_FORTEST ""
 
 // E-Bot Version
-#define PRODUCT_VERSION_DWORD 110,20260302,11 // yyyy/mm/dd
-#define PRODUCT_VERSION "1.11a"
-#define PRODUCT_VERSION_F 1.11a
+#define PRODUCT_VERSION_DWORD 111,20260302,11 // yyyy/mm/dd
+#define PRODUCT_VERSION "1.11"
+#define PRODUCT_VERSION_F 1.11
 
 // general product information
 #define PRODUCT_NAME "E-BOT"
