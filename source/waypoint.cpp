@@ -877,11 +877,15 @@ void Waypoint::AddPath(const int16_t addIndex, const int16_t pathIndex, const in
 	}
 
 	// there wasn't any free space. try exchanging it with a long-distance path
-	float distance, maxDistance = 9999999.0f;
+	float distance, maxDistance = -1.0f;
 	int16_t slotID = -1;
 	for (i = 0; i < Const_MaxPathIndex; i++)
 	{
-		distance = (path->origin - m_paths[path->index[i]].origin).GetLengthSquared();
+		const int16_t existing = path->index[i];
+		if (!IsValidWaypoint(existing))
+			continue;
+
+		distance = (path->origin - m_paths[existing].origin).GetLengthSquared();
 		if (distance > maxDistance)
 		{
 			maxDistance = distance;
@@ -1163,14 +1167,17 @@ void Waypoint::Add(const int flags, const Vector& waypointOrigin, const float an
 		m_lastJumpWaypoint = index;
 	else if (flags == 10)
 	{
-		AddPath(m_lastJumpWaypoint, index);
-
-		for (i = 0; i < Const_MaxPathIndex; i++)
+		if (IsValidWaypoint(m_lastJumpWaypoint))
 		{
-			if (m_paths[m_lastJumpWaypoint].index[i] == index)
+			AddPath(m_lastJumpWaypoint, index);
+
+			for (i = 0; i < Const_MaxPathIndex; i++)
 			{
-				m_paths[m_lastJumpWaypoint].connectionFlags[i] |= PATHFLAG_JUMP;
-				break;
+				if (m_paths[m_lastJumpWaypoint].index[i] == index)
+				{
+					m_paths[m_lastJumpWaypoint].connectionFlags[i] |= PATHFLAG_JUMP;
+					break;
+				}
 			}
 		}
 
@@ -1240,6 +1247,14 @@ void Waypoint::Add(const int flags, const Vector& waypointOrigin, const float an
 		path->flags |= WAYPOINT_ZMHMCAMP;
 	else if (flags == 105)
 		path->flags |= WAYPOINT_HMCAMPMESH;
+
+	// Autopath disabled: do not create automatic links.
+	if (!g_analyzewaypoints && Math::FltZero(g_autoPathDistance))
+	{
+		PlaySound(g_hostEntity, "weapons/xbow_hit1.wav");
+		CalculateWayzone(index);
+		return;
+	}
 
 	// Ladder waypoints need careful connections
 	if (path->flags & WAYPOINT_LADDER)
@@ -1452,6 +1467,34 @@ void Waypoint::DeleteByIndex(const int16_t index)
 
 	EraseFromBucket(m_paths[index].origin, index);
 	m_paths.RemoveAt(index);
+
+	// Compact bucket indices after waypoint array compaction.
+	for (i = 0; i < m_buckets.Size();)
+	{
+		int16_t j;
+		for (j = 0; j < m_buckets[i].waypoints.Size();)
+		{
+			int16_t& wayIndex = m_buckets[i].waypoints[j];
+			if (wayIndex == index)
+			{
+				m_buckets[i].waypoints.RemoveAt(j);
+				continue;
+			}
+
+			if (wayIndex > index)
+				wayIndex--;
+
+			j++;
+		}
+
+		if (m_buckets[i].waypoints.IsEmpty())
+		{
+			m_buckets.RemoveAt(i);
+			continue;
+		}
+
+		i++;
+	}
 
 	g_numWaypoints--;
 	if (m_waypointDisplayTime.IsAllocated())
