@@ -225,3 +225,82 @@ E-Bot Main Menu
 4. End Round - force kill all bots (round cleanup helper)
 0. Exit - close menu
 ```
+
+## E-Bot Commands (Console)
+Main command entry:
+- `ebot <command> [args...]`
+
+Standalone commands:
+- `ebot_about` - print version/about info.
+- `ebot_add` - add one random bot.
+- `ebot_add_t` / `ebot_add_tr` - add one random Terrorist bot.
+- `ebot_add_ct` - add one random Counter-Terrorist bot.
+
+Core commands (`ebot ...`):
+- `help` / `?` - show help (`ebot help full` for extended output).
+- `version` / `ver` - show version.
+- `about` / `about_bot` - show about block.
+- `time` / `ctime` - print current server time.
+- `menu` / `botmenu` - open main menu.
+- `cmenu` / `cmdmenu` - open command menu.
+- `list` / `listbots` - list active bots.
+- `fill` / `fillserver` - fill server with bots.
+- `kickall` / `kickbots` - remove all bots.
+- `killall` / `killbots` - kill all bots.
+- `kick` / `kickone` - remove one random bot.
+- `kick_t` / `kickbot_t` - remove one random T bot.
+- `kick_ct` / `kickbot_ct` - remove one random CT bot.
+- `kill_t` / `killbots_t` - kill all T bots.
+- `kill_ct` / `killbots_ct` - kill all CT bots.
+- `swap` / `swaptteams` - swap teams.
+- `order` / `sendcmd` - execute command on selected bot.
+- `health <value>` / `sethealth <value>` - set bot health.
+- `gravity <value>` / `setgravity <value>` - set bot gravity.
+
+`ebot fill` syntax:
+- `ebot fill [team] [personality] [skill] [count]`
+- `team`: `1` = T, `2` = CT, `5` = random/default.
+- omitted args use default/random behavior.
+
+`ebot order` syntax:
+- `ebot order <client_index> <bot_command>`
+- example: `ebot order 3 radio1`
+
+Waypoint commands (`ebot wp`, aliases: `ebot waypoint`, `ebot wpt`):
+- `ebot wp` - print waypoint mode status.
+- `ebot wp on` / `ebot wp off` - enable/disable waypoint editing mode.
+- `ebot wp noclip` - toggle waypoint noclip helper.
+- `ebot wp mdl on` / `ebot wp mdl off` - show/hide spawn models.
+- `ebot wp menu` - open waypoint menu.
+- `ebot wp add` - open add-waypoint menu.
+- `ebot wp flags` - open waypoint flags menu.
+- `ebot wp addbasic` - create base waypoints.
+- `ebot wp analyze` / `ebot wp analyzeoff` / `ebot wp analyzefix` - analyze workflow.
+- `ebot wp find <index>` - set/find waypoint index.
+- `ebot wp cache` - cache nearest waypoint.
+- `ebot wp teleport <index>` - teleport to waypoint.
+- `ebot wp setradius <value>` - set nearest waypoint radius.
+- `ebot wp setmesh <value>` - set nearest waypoint mesh id.
+- `ebot wp setgravity <value>` - set nearest waypoint gravity.
+- `ebot wp delete` - delete nearest waypoint.
+- `ebot wp save` / `ebot wp save nocheck` - save waypoint file.
+- `ebot wp load` - load waypoint file.
+- `ebot wp check` - validate waypoint graph.
+
+Path commands (`ebot path`, aliases: `ebot pathwaypoint`, `ebot pwp`):
+- `ebot path create` - open create-path menu.
+- `ebot path delete` - delete path between selected points.
+- `ebot path autodistance` - open auto-path distance menu.
+- `ebot path create_out` - create outgoing path.
+- `ebot path create_in` - create incoming path.
+- `ebot path create_both` - create both-way path.
+- `ebot path create_jump` - create jump path.
+- `ebot path create_boost` - create zombie boost path.
+- `ebot path create_visible` - create visible-only path.
+
+Autowaypoint commands:
+- `ebot autowp on` / `ebot autowp off` (alias: `ebot autowaypoint`) - toggle auto waypointing.
+
+Notes:
+- A few legacy names printed by old help text can be no-op in this branch.
+- Waypoint/path editing is intended for local host/listen-server editing workflow.
