@@ -401,8 +401,9 @@ MenuText g_menus[28] =
 		"2. Incoming Path\v"
 		"3. Bidirectional (Both Ways)\v"
 		"4. Jump Path\v"
-		"5. Zombie Boosting Path\v\v"
-		"6. Delete Path\v"
+		"5. Jump Path + Outgoing\v"
+		"6. Zombie Boosting Path\v"
+		"7. Delete Path\v"
 		"\v0. Exit"
 	},
 

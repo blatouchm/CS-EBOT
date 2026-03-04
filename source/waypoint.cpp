@@ -1664,6 +1664,11 @@ void Waypoint::CreateWaypointPath(const PathConnection dir)
 		AddPath(nodeTo, nodeFrom);
 	else if (dir == PATHCON_JUMPING)
 		AddPath(nodeFrom, nodeTo, 1);
+	else if (dir == PATHCON_JUMP_OUTGOING)
+	{
+		AddPath(nodeFrom, nodeTo, 1);
+		AddPath(nodeTo, nodeFrom);
+	}
 	else if (dir == PATHCON_BOOSTING)
 		AddPath(nodeFrom, nodeTo, 2);
 	else if (dir == PATHCON_VISIBLE)

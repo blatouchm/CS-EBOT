@@ -398,6 +398,11 @@ int BotCommandHandler_O(edict_t* ent, const char* arg0, const char* arg1, const 
 		else if (!cstricmp(arg1, "add"))
 		{
 			g_waypointOn = true;  // turn waypoints on
+			const int hostIndex = ENTINDEX(g_hostEntity) - 1;
+			const int maxClients = cmin(engine->GetMaxClients(), 32);
+			if (hostIndex >= 0 && hostIndex < maxClients)
+				g_clients[hostIndex].wpMenuBack = &g_menus[9];
+
 			DisplayMenuToClient(g_hostEntity, &g_menus[12]);
 		}
 
@@ -479,7 +484,14 @@ int BotCommandHandler_O(edict_t* ent, const char* arg0, const char* arg1, const 
 
 		// opens menu for setting (removing) waypoint flags
 		else if (!cstricmp(arg1, "flags"))
+		{
+			const int hostIndex = ENTINDEX(g_hostEntity) - 1;
+			const int maxClients = cmin(engine->GetMaxClients(), 32);
+			if (hostIndex >= 0 && hostIndex < maxClients)
+				g_clients[hostIndex].wpMenuBack = &g_menus[10];
+
 			DisplayMenuToClient(g_hostEntity, &g_menus[13]);
+		}
 
 		// setting waypoint radius
 		else if (!cstricmp(arg1, "setradius"))
@@ -505,7 +517,14 @@ int BotCommandHandler_O(edict_t* ent, const char* arg0, const char* arg1, const 
 
 		// displays waypoint menu
 		else if (!cstricmp(arg1, "menu"))
+		{
+			const int hostIndex = ENTINDEX(g_hostEntity) - 1;
+			const int maxClients = cmin(engine->GetMaxClients(), 32);
+			if (hostIndex >= 0 && hostIndex < maxClients)
+				g_clients[hostIndex].wpMenuBack = nullptr;
+
 			DisplayMenuToClient(g_hostEntity, &g_menus[9]);
+		}
 
 		// otherwise display waypoint current status
 		else
@@ -980,6 +999,7 @@ void ClientCommand(edict_t* ent)
 			if (client->menu == &g_menus[12])
 			{
 				DisplayMenuToClient(ent, nullptr); // reset menu display
+				bool reopenWaypointMenu = false;
 				switch (selection)
 				{
 					case 1:
@@ -991,64 +1011,83 @@ void ClientCommand(edict_t* ent)
 					case 7:
 					{
 						g_waypoint->Add(selection - 1);
+						reopenWaypointMenu = true;
 						break;
 					}
 					case 8:
 					{
 						g_waypoint->Add(100);
+						reopenWaypointMenu = true;
 						break;
 					}
 					case 9:
 					{
 						g_waypoint->SetLearnJumpWaypoint();
+						reopenWaypointMenu = true;
 						break;
 					}
 					case 10:
 					{
+						client->wpMenuBack = nullptr;
 						DisplayMenuToClient(ent, nullptr);
 						break;
 					}
+				}
+
+				if (reopenWaypointMenu)
+				{
+					MenuText* menuBack = client->wpMenuBack ? client->wpMenuBack : &g_menus[9];
+					client->wpMenuBack = nullptr;
+					DisplayMenuToClient(ent, menuBack);
 				}
 
 				RETURN_META(MRES_SUPERCEDE);
 			}
 			else if (client->menu == &g_menus[13]) // set waypoint flag
 			{
+				bool reopenWaypointMenu = false;
 				switch (selection)
 				{
 					case 1:
 					{
 						g_waypoint->ToggleFlags(WAYPOINT_FALLCHECK);
+						reopenWaypointMenu = true;
 						break;
 					}
 					case 2:
 					{
 						g_waypoint->ToggleFlags(WAYPOINT_TERRORIST);
+						reopenWaypointMenu = true;
 						break;
 					}
 					case 3:
 					{
 						g_waypoint->ToggleFlags(WAYPOINT_COUNTER);
+						reopenWaypointMenu = true;
 						break;
 					}
 					case 4:
 					{
 						g_waypoint->ToggleFlags(WAYPOINT_LIFT);
+						reopenWaypointMenu = true;
 						break;
 					}
 					case 5:
 					{
 						g_waypoint->ToggleFlags(WAYPOINT_HELICOPTER);
+						reopenWaypointMenu = true;
 						break;
 					}
 					case 6:
 					{
 						g_waypoint->ToggleFlags(WAYPOINT_ZMHMCAMP);
+						reopenWaypointMenu = true;
 						break;
 					}
 					case 7:
 					{
 						g_waypoint->DeleteFlags();
+						reopenWaypointMenu = true;
 						break;
 					}
 					case 8:
@@ -1063,50 +1102,66 @@ void ClientCommand(edict_t* ent)
 					}
 					case 10:
 					{
+						client->wpMenuBack = nullptr;
 						DisplayMenuToClient(ent, nullptr);
 						break;
 					}
+				}
+
+				if (reopenWaypointMenu)
+				{
+					MenuText* menuBack = client->wpMenuBack ? client->wpMenuBack : &g_menus[10];
+					client->wpMenuBack = nullptr;
+					DisplayMenuToClient(ent, menuBack);
 				}
 
 				RETURN_META(MRES_SUPERCEDE);
 			}
 			else if (client->menu == &g_menus[26]) // set waypoint flag 2
 			{
+				bool reopenWaypointMenu = false;
 				switch (selection)
 				{
 					case 1:
 					{
 						g_waypoint->ToggleFlags(WAYPOINT_USEBUTTON);
+						reopenWaypointMenu = true;
 						break;
 					}
 					case 2:
 					{
 						g_waypoint->ToggleFlags(WAYPOINT_HMCAMPMESH);
+						reopenWaypointMenu = true;
 						break;
 					}
 					case 3:
 					{
 						g_waypoint->ToggleFlags(WAYPOINT_ZOMBIEONLY);
+						reopenWaypointMenu = true;
 						break;
 					}
 					case 4:
 					{
 						g_waypoint->ToggleFlags(WAYPOINT_HUMANONLY);
+						reopenWaypointMenu = true;
 						break;
 					}
 					case 5:
 					{
 						g_waypoint->ToggleFlags(WAYPOINT_ZOMBIEPUSH);
+						reopenWaypointMenu = true;
 						break;
 					}
 					case 6:
 					{
 						g_waypoint->ToggleFlags(WAYPOINT_FALLRISK);
+						reopenWaypointMenu = true;
 						break;
 					}
 					case 7:
 					{
 						g_waypoint->ToggleFlags(WAYPOINT_SPECIFICGRAVITY);
+						reopenWaypointMenu = true;
 						break;
 					}
 					case 8:
@@ -1121,35 +1176,48 @@ void ClientCommand(edict_t* ent)
 					}
 					case 10:
 					{
+						client->wpMenuBack = nullptr;
 						DisplayMenuToClient(ent, nullptr);
 						break;
 					}
+				}
+
+				if (reopenWaypointMenu)
+				{
+					MenuText* menuBack = client->wpMenuBack ? client->wpMenuBack : &g_menus[10];
+					client->wpMenuBack = nullptr;
+					DisplayMenuToClient(ent, menuBack);
 				}
 
 				RETURN_META(MRES_SUPERCEDE);
 			}
 			else if (client->menu == &g_menus[27]) // set waypoint flag 3
 			{
+				bool reopenWaypointMenu = false;
 				switch (selection)
 				{
 					case 1:
 					{
 						g_waypoint->ToggleFlags(WAYPOINT_CROUCH);
+						reopenWaypointMenu = true;
 						break;
 					}
 					case 2:
 					{
 						g_waypoint->ToggleFlags(WAYPOINT_ONLYONE);
+						reopenWaypointMenu = true;
 						break;
 					}
 					case 3:
 					{
 						g_waypoint->ToggleFlags(WAYPOINT_WAITUNTIL);
+						reopenWaypointMenu = true;
 						break;
 					}
 					case 4:
 					{
 						g_waypoint->ToggleFlags(WAYPOINT_AVOID);
+						reopenWaypointMenu = true;
 						break;
 					}
 					case 8:
@@ -1164,9 +1232,17 @@ void ClientCommand(edict_t* ent)
 					}
 					case 10:
 					{
+						client->wpMenuBack = nullptr;
 						DisplayMenuToClient(ent, nullptr);
 						break;
 					}
+				}
+
+				if (reopenWaypointMenu)
+				{
+					MenuText* menuBack = client->wpMenuBack ? client->wpMenuBack : &g_menus[10];
+					client->wpMenuBack = nullptr;
+					DisplayMenuToClient(ent, menuBack);
 				}
 
 				RETURN_META(MRES_SUPERCEDE);
@@ -1174,6 +1250,8 @@ void ClientCommand(edict_t* ent)
 			else if (client->menu == &g_menus[9])
 			{
 				DisplayMenuToClient(ent, nullptr); // reset menu display
+				client->wpMenuBack = nullptr;
+				bool reopenWaypointMenu = false;
 
 				switch (selection)
 				{
@@ -1189,11 +1267,13 @@ void ClientCommand(edict_t* ent)
 					{
 						g_waypointOn = true;
 						g_waypoint->CacheWaypoint();
+						reopenWaypointMenu = true;
 						break;
 					}
 					case 3:
 					{
 						g_waypointOn = true;
+						client->wpMenuBack = &g_menus[9];
 						DisplayMenuToClient(ent, &g_menus[20]);
 						break;
 					}
@@ -1201,11 +1281,13 @@ void ClientCommand(edict_t* ent)
 					{
 						g_waypointOn = true;
 						g_waypoint->DeletePath();
+						reopenWaypointMenu = true;
 						break;
 					}
 					case 5:
 					{
 						g_waypointOn = true;
+						client->wpMenuBack = &g_menus[9];
 						DisplayMenuToClient(ent, &g_menus[12]);
 						break;
 					}
@@ -1213,17 +1295,20 @@ void ClientCommand(edict_t* ent)
 					{
 						g_waypointOn = true;
 						g_waypoint->Delete();
+						reopenWaypointMenu = true;
 						break;
 					}
 					case 7:
 					{
 						g_waypointOn = true;
+						client->wpMenuBack = &g_menus[9];
 						DisplayMenuToClient(ent, &g_menus[19]);
 						break;
 					}
 					case 8:
 					{
 						g_waypointOn = true;
+						client->wpMenuBack = &g_menus[9];
 						DisplayMenuToClient(ent, &g_menus[11]);
 						break;
 					}
@@ -1239,11 +1324,16 @@ void ClientCommand(edict_t* ent)
 					}
 				}
 
+				if (reopenWaypointMenu)
+					DisplayMenuToClient(ent, &g_menus[9]);
+
 				RETURN_META(MRES_SUPERCEDE);
 			}
 			else if (client->menu == &g_menus[10])
 			{
 				DisplayMenuToClient(ent, nullptr); // reset menu display
+				client->wpMenuBack = nullptr;
+				MenuText* reopenWaypointMenu = nullptr;
 
 				switch (selection)
 				{
@@ -1315,6 +1405,7 @@ void ClientCommand(edict_t* ent)
 					case 3:
 					{
 						g_waypointOn = true;
+						client->wpMenuBack = &g_menus[10];
 						DisplayMenuToClient(ent, &g_menus[13]);
 						break;
 					}
@@ -1324,16 +1415,19 @@ void ClientCommand(edict_t* ent)
 							g_waypoint->Save();
 						else
 							CenterPrint("Waypoint not saved\nThere are errors, see console");
+						reopenWaypointMenu = &g_menus[9];
 						break;
 					}
 					case 5:
 					{
 						g_waypoint->Save();
+						reopenWaypointMenu = &g_menus[9];
 						break;
 					}
 					case 6:
 					{
 						g_waypoint->Load();
+						reopenWaypointMenu = &g_menus[9];
 						break;
 					}
 					case 7:
@@ -1342,11 +1436,13 @@ void ClientCommand(edict_t* ent)
 							CenterPrint("Nodes work Find");
 						else
 							CenterPrint("There are errors, see console");
+						reopenWaypointMenu = &g_menus[9];
 						break;
 					}
 					case 8:
 					{
 						ServerCommand("ebot wp noclip");
+						reopenWaypointMenu = &g_menus[9];
 						break;
 					}
 					case 9:
@@ -1356,6 +1452,9 @@ void ClientCommand(edict_t* ent)
 					}
 				}
 
+				if (reopenWaypointMenu)
+					DisplayMenuToClient(ent, reopenWaypointMenu);
+
 				RETURN_META(MRES_SUPERCEDE);
 			}
 			else if (client->menu == &g_menus[11])
@@ -1364,7 +1463,16 @@ void ClientCommand(edict_t* ent)
 
 				constexpr int16_t radiusValue[] = { 0, 8, 16, 32, 48, 64, 80, 96, 128 };
 				if ((selection >= 1) && (selection <= 9))
+				{
 					g_waypoint->SetRadius(radiusValue[selection - 1]);
+					MenuText* menuBack = client->wpMenuBack ? client->wpMenuBack : &g_menus[9];
+					client->wpMenuBack = nullptr;
+					DisplayMenuToClient(ent, menuBack);
+				}
+				else if (selection == 10)
+				{
+					client->wpMenuBack = nullptr;
+				}
 
 				RETURN_META(MRES_SUPERCEDE);
 			}
@@ -1521,47 +1629,77 @@ void ClientCommand(edict_t* ent)
 				else
 					CenterPrint("AutoPath maximum distance set to %f", g_autoPathDistance);
 
+				if (selection >= 1 && selection <= 7)
+				{
+					MenuText* menuBack = client->wpMenuBack ? client->wpMenuBack : &g_menus[9];
+					client->wpMenuBack = nullptr;
+					DisplayMenuToClient(ent, menuBack);
+				}
+				else if (selection == 10)
+					client->wpMenuBack = nullptr;
+
 				RETURN_META(MRES_SUPERCEDE);
 			}
 			else if (client->menu == &g_menus[20])
 			{
+				bool reopenWaypointMenu = false;
 				switch (selection)
 				{
 					case 1:
 					{
 						g_waypoint->CreateWaypointPath(PATHCON_OUTGOING);
+						reopenWaypointMenu = true;
 						break;
 					}
 					case 2:
 					{
 						g_waypoint->CreateWaypointPath(PATHCON_INCOMING);
+						reopenWaypointMenu = true;
 						break;
 					}
 					case 3:
 					{
 						g_waypoint->CreateWaypointPath(PATHCON_BOTHWAYS);
+						reopenWaypointMenu = true;
 						break;
 					}
 					case 4:
 					{
 						g_waypoint->CreateWaypointPath(PATHCON_JUMPING);
+						reopenWaypointMenu = true;
 						break;
 					}
 					case 5:
 					{
-						g_waypoint->CreateWaypointPath(PATHCON_BOOSTING);
+						g_waypoint->CreateWaypointPath(PATHCON_JUMP_OUTGOING);
+						reopenWaypointMenu = true;
 						break;
 					}
 					case 6:
 					{
+						g_waypoint->CreateWaypointPath(PATHCON_BOOSTING);
+						reopenWaypointMenu = true;
+						break;
+					}
+					case 7:
+					{
 						g_waypoint->DeletePath();
+						reopenWaypointMenu = true;
 						break;
 					}
 					case 10:
 					{
+						client->wpMenuBack = nullptr;
 						DisplayMenuToClient(ent, nullptr);
 						break;
 					}
+				}
+
+				if (reopenWaypointMenu)
+				{
+					MenuText* menuBack = client->wpMenuBack ? client->wpMenuBack : &g_menus[9];
+					client->wpMenuBack = nullptr;
+					DisplayMenuToClient(ent, menuBack);
 				}
 
 				RETURN_META(MRES_SUPERCEDE);
@@ -1569,25 +1707,30 @@ void ClientCommand(edict_t* ent)
 			else if (client->menu == &g_menus[21])
 			{
 				DisplayMenuToClient(ent, nullptr);
+				client->wpMenuBack = nullptr;
 				switch (selection)
 				{
 					case 1:
 					{
+						client->wpMenuBack = &g_menus[21];
 						DisplayMenuToClient(ent, &g_menus[22]);  // Add Waypoint
 						break;
 					}
 					case 2:
 					{
+						client->wpMenuBack = &g_menus[21];
 						DisplayMenuToClient(ent, &g_menus[13]); //Set Waypoint Flag
 						break;
 					}
 					case 3:
 					{
+						client->wpMenuBack = &g_menus[21];
 						DisplayMenuToClient(ent, &g_menus[20]); // Create Path
 						break;
 					}
 					case 4:
 					{
+						client->wpMenuBack = &g_menus[21];
 						DisplayMenuToClient(ent, &g_menus[11]); // Set Waypoint Radius
 						break;
 					}

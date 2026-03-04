@@ -194,7 +194,8 @@ enum PathConnection {
   PATHCON_BOTHWAYS,
   PATHCON_JUMPING,
   PATHCON_BOOSTING,
-  PATHCON_VISIBLE
+  PATHCON_VISIBLE,
+  PATHCON_JUMP_OUTGOING
 };
 
 // collision states
@@ -406,6 +407,8 @@ struct MenuText {
 // array of clients struct
 struct Clients {
   MenuText *menu{nullptr}; // pointer to opened bot menu
+  MenuText *wpMenuBack{
+      nullptr};          // waypoint edit menu to return after add/edit action
   edict_t *ent{nullptr};   // pointer to actual edict
   Vector origin{nullvec};  // position in the world
   int team{Team::Count};   // bot team
