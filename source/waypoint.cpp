@@ -1,4 +1,4 @@
-﻿//
+//
 // Copyright (c) 2003-2009, by Yet Another POD-Bot Development Team.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -3182,7 +3182,7 @@ void Waypoint::ShowWaypointMsg(void)
 						const Vector& dest = m_paths[x].origin + Vector(0, 0, (m_paths[x].flags & WAYPOINT_CROUCH) ? 9.0f : 18.0f);
 
 						// draw links
-						engine->DrawLineToAll(src, dest, Color(0, 0, 255, 255), 5, 0, 0, 10);
+						engine->DrawLineToOwners(src, dest, Color(0, 0, 255, 255), 5, 0, 0, 10);
 					}
 				}
 
@@ -3262,11 +3262,11 @@ void Waypoint::ShowWaypointMsg(void)
 
 						// draw node without additional flags
 						if (!nodeFlagColor.red && !nodeFlagColor.blue && !nodeFlagColor.green)
-							engine->DrawLineToAll(m_paths[i].origin - Vector(0.0f, 0.0f, nodeHalfHeight), m_paths[i].origin + Vector(0.0f, 0.0f, nodeHalfHeight), nodeColor, ebot_waypoint_size.GetFloat(), 0, 0, 10);
+							engine->DrawLineToOwners(m_paths[i].origin - Vector(0.0f, 0.0f, nodeHalfHeight), m_paths[i].origin + Vector(0.0f, 0.0f, nodeHalfHeight), nodeColor, ebot_waypoint_size.GetFloat(), 0, 0, 10);
 						else // draw node with flags
 						{
-							engine->DrawLineToAll(m_paths[i].origin - Vector(0.0f, 0.0f, nodeHalfHeight), m_paths[i].origin - Vector(0.0f, 0.0f, nodeHalfHeight - nodeHeight * 0.75f), nodeColor, ebot_waypoint_size.GetFloat(), 0, 0, 10); // draw basic path
-							engine->DrawLineToAll(m_paths[i].origin - Vector(0.0f, 0.0f, nodeHalfHeight - nodeHeight * 0.75f), m_paths[i].origin + Vector(0.0f, 0.0f, nodeHalfHeight), nodeFlagColor, ebot_waypoint_size.GetFloat(), 0, 0, 10); // draw additional path
+							engine->DrawLineToOwners(m_paths[i].origin - Vector(0.0f, 0.0f, nodeHalfHeight), m_paths[i].origin - Vector(0.0f, 0.0f, nodeHalfHeight - nodeHeight * 0.75f), nodeColor, ebot_waypoint_size.GetFloat(), 0, 0, 10); // draw basic path
+							engine->DrawLineToOwners(m_paths[i].origin - Vector(0.0f, 0.0f, nodeHalfHeight - nodeHeight * 0.75f), m_paths[i].origin + Vector(0.0f, 0.0f, nodeHalfHeight), nodeFlagColor, ebot_waypoint_size.GetFloat(), 0, 0, 10); // draw additional path
 						}
 
 						if (m_paths[i].flags & WAYPOINT_FALLCHECK || m_paths[i].flags & WAYPOINT_WAITUNTIL)
@@ -3275,9 +3275,9 @@ void Waypoint::ShowWaypointMsg(void)
 							TraceLine(m_paths[i].origin, m_paths[i].origin - Vector(0.0f, 0.0f, 60.0f), TraceIgnore::Nothing, g_hostEntity, &tr);
 
 							if (tr.flFraction >= 1.0f)
-								engine->DrawLineToAll(m_paths[i].origin, m_paths[i].origin - Vector(0.0f, 0.0f, 60.0f), Color(255, 0, 0, 255), ebot_waypoint_size.GetFloat() - 1.0f, 0, 0, 10);
+								engine->DrawLineToOwners(m_paths[i].origin, m_paths[i].origin - Vector(0.0f, 0.0f, 60.0f), Color(255, 0, 0, 255), ebot_waypoint_size.GetFloat() - 1.0f, 0, 0, 10);
 							else
-								engine->DrawLineToAll(m_paths[i].origin, m_paths[i].origin - Vector(0.0f, 0.0f, 60.0f), Color(0, 0, 255, 255), ebot_waypoint_size.GetFloat() - 1.0f, 0, 0, 10);
+								engine->DrawLineToOwners(m_paths[i].origin, m_paths[i].origin - Vector(0.0f, 0.0f, 60.0f), Color(0, 0, 255, 255), ebot_waypoint_size.GetFloat() - 1.0f, 0, 0, 10);
 						}
 
 						m_waypointDisplayTime[i] = engine->GetTime();
@@ -3313,15 +3313,15 @@ void Waypoint::ShowWaypointMsg(void)
 		{
 			// finding waypoint - pink arrow
 			if (IsValidWaypoint(m_findWPIndex))
-				engine->DrawLineToAll(m_paths[m_findWPIndex].origin, GetEntityOrigin(g_hostEntity), Color(128, 0, 128, 255), 10, 0, 0, 5, LINE_ARROW);
+				engine->DrawLineToOwners(m_paths[m_findWPIndex].origin, GetEntityOrigin(g_hostEntity), Color(128, 0, 128, 255), 10, 0, 0, 5, LINE_ARROW);
 
 			// cached waypoint - yellow arrow
 			if (IsValidWaypoint(m_cacheWaypointIndex))
-				engine->DrawLineToAll(m_paths[m_cacheWaypointIndex].origin, GetEntityOrigin(g_hostEntity), Color(255, 255, 0, 255), 10, 0, 0, 5, LINE_ARROW);
+				engine->DrawLineToOwners(m_paths[m_cacheWaypointIndex].origin, GetEntityOrigin(g_hostEntity), Color(255, 255, 0, 255), 10, 0, 0, 5, LINE_ARROW);
 
 			// waypoint user facing at - white arrow
 			if (IsValidWaypoint(m_facingAtIndex))
-				engine->DrawLineToAll(m_paths[m_facingAtIndex].origin, GetEntityOrigin(g_hostEntity), Color(255, 255, 255, 255), 10, 0, 0, 5, LINE_ARROW);
+				engine->DrawLineToOwners(m_paths[m_facingAtIndex].origin, GetEntityOrigin(g_hostEntity), Color(255, 255, 255, 255), 10, 0, 0, 5, LINE_ARROW);
 
 			m_arrowDisplayTime = engine->GetTime();
 		}
@@ -3357,20 +3357,20 @@ void Waypoint::ShowWaypointMsg(void)
 
 			// jump connection
 			if (path->connectionFlags[i] & PATHFLAG_JUMP)
-				engine->DrawLineToAll(path->origin, m_paths[path->index[i]].origin, Color(255, 0, 0, 255), 5, 0, 0, 10);
+				engine->DrawLineToOwners(path->origin, m_paths[path->index[i]].origin, Color(255, 0, 0, 255), 5, 0, 0, 10);
 			else if (path->connectionFlags[i] & PATHFLAG_DOUBLE) // boosting friend connection
-				engine->DrawLineToAll(path->origin, m_paths[path->index[i]].origin, Color(0, 0, 255, 255), 5, 0, 0, 10);
+				engine->DrawLineToOwners(path->origin, m_paths[path->index[i]].origin, Color(0, 0, 255, 255), 5, 0, 0, 10);
 			else if (IsConnected(path->index[i], nearestIndex)) // twoway connection
-				engine->DrawLineToAll(path->origin, m_paths[path->index[i]].origin, Color(255, 255, 0, 255), 5, 0, 0, 10);
+				engine->DrawLineToOwners(path->origin, m_paths[path->index[i]].origin, Color(255, 255, 0, 255), 5, 0, 0, 10);
 			else // oneway connection
-				engine->DrawLineToAll(path->origin, m_paths[path->index[i]].origin, Color(250, 250, 250, 255), 5, 0, 0, 10);
+				engine->DrawLineToOwners(path->origin, m_paths[path->index[i]].origin, Color(250, 250, 250, 255), 5, 0, 0, 10);
 		}
 
 		// now look for oneway incoming connections
 		for (i = 0; i < g_numWaypoints; i++)
 		{
 			if (IsConnected(i, nearestIndex) && !IsConnected(nearestIndex, i))
-				engine->DrawLineToAll(path->origin, m_paths[i].origin, Color(0, 192, 96, 255), 5, 0, 0, 10);
+				engine->DrawLineToOwners(path->origin, m_paths[i].origin, Color(0, 192, 96, 255), 5, 0, 0, 10);
 		}
 
 		// draw the radius circle
@@ -3382,18 +3382,18 @@ void Waypoint::ShowWaypointMsg(void)
 			const float root = static_cast<float>(path->radius);
 			const Color& def = Color(0, 0, 255, 255);
 
-			engine->DrawLineToAll(origin + Vector(root, root, 0.0f), origin + Vector(-root, root, 0.0f), def, 5, 0, 0, 10);
-			engine->DrawLineToAll(origin + Vector(root, root, 0.0f), origin + Vector(root, -root, 0.0f), def, 5, 0, 0, 10);
-			engine->DrawLineToAll(origin + Vector(-root, -root, 0.0f), origin + Vector(root, -root, 0.0f), def, 5, 0, 0, 10);
-			engine->DrawLineToAll(origin + Vector(-root, -root, 0.0f), origin + Vector(-root, root, 0.0f), def, 5, 0, 0, 10);
+			engine->DrawLineToOwners(origin + Vector(root, root, 0.0f), origin + Vector(-root, root, 0.0f), def, 5, 0, 0, 10);
+			engine->DrawLineToOwners(origin + Vector(root, root, 0.0f), origin + Vector(root, -root, 0.0f), def, 5, 0, 0, 10);
+			engine->DrawLineToOwners(origin + Vector(-root, -root, 0.0f), origin + Vector(root, -root, 0.0f), def, 5, 0, 0, 10);
+			engine->DrawLineToOwners(origin + Vector(-root, -root, 0.0f), origin + Vector(-root, root, 0.0f), def, 5, 0, 0, 10);
 		}
 		else
 		{
 			constexpr float root = 5.0f;
 			const Color& def = Color(0, 0, 255, 255);
 
-			engine->DrawLineToAll(origin + Vector(root, -root, 0.0f), origin + Vector(-root, root, 0.0f), def, 5, 0, 0, 10);
-			engine->DrawLineToAll(origin + Vector(-root, -root, 0.0f), origin + Vector(root, root, 0.0f), def, 5, 0, 0, 10);
+			engine->DrawLineToOwners(origin + Vector(root, -root, 0.0f), origin + Vector(-root, root, 0.0f), def, 5, 0, 0, 10);
+			engine->DrawLineToOwners(origin + Vector(-root, -root, 0.0f), origin + Vector(root, root, 0.0f), def, 5, 0, 0, 10);
 		}
 
 		// display some information
@@ -3477,6 +3477,13 @@ void Waypoint::ShowWaypointMsg(void)
 		}
 
 		// draw entire message
+		const bool hostCanSeeWaypoint =
+			hostIndex >= 0 && hostIndex < maxClients &&
+			((g_clients[hostIndex].flags & CFLAG_OWNER) ||
+			 (!IsDedicatedServer() && g_clients[hostIndex].ent == g_hostEntity));
+		if (!hostCanSeeWaypoint)
+			return;
+
 		MESSAGE_BEGIN(MSG_ONE_UNRELIABLE, SVC_TEMPENTITY, nullptr, g_hostEntity);
 		WRITE_BYTE(TE_TEXTMESSAGE);
 		WRITE_BYTE(4); // channel
@@ -3863,3 +3870,4 @@ Waypoint::~Waypoint(void)
 	m_waypointDisplayTime.Destroy();
 	m_distMatrix.Destroy();
 }
+

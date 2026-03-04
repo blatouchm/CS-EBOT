@@ -986,7 +986,7 @@ void ClientPrint(edict_t* ent, int dest, const char* format, ...)
 	va_end(ap);
 	string[sizeof(string) - 1] = '\0';
 
-	if (FNullEnt(ent) || ent == g_hostEntity)
+	if (FNullEnt(ent) || (!IsDedicatedServer() && ent == g_hostEntity))
 	{
 		if (dest & 0x3ff)
 			ServerPrint("%s", string);

@@ -20,6 +20,35 @@ If you see badf load on console (when you type "meta list") install this.
 5. (For Windows) Add that line "win32 addons\ebot\dlls\ebot.dll" and save it.
 6. (For Linux) Add that line "linux addons/ebot/dlls/ebot.so" and save it.
 
+
+# How to use (local client server)
+1. Write this to client console: `bind k "ebot menu"`
+2. Write this to client console: `bind j "ebot wp menu"`
+
+Press `j` or `k` and you can manage waypoints and bots. 
+
+(NOTE: Editing waypoints/paths with bots may cause crashes)
+
+
+# How to use (dedicated server)
+1. Set password in ebot.cfg, for example: `ebot_password_key "39532"`
+2. Write this to client console: `setinfo ebot_pass "39532"`
+3. Restart server
+3. Write this to client console: `bind k "ebot menu"`
+4. Write this to client console: `bind j "ebot wp menu"`
+5. Write this to client console: `ebot wp on`
+
+Now on `k` you have main menu and on `j` wp editing menu.
+
+(NOTE: Editing waypoints/paths with bots on the server may cause crashes)
+
+### Other usefull commands:
+- `bind "KP_MINUS"             "ebot kickall"`
+- `bind "KP_PLUS"              "ebot_add"`
+- `bind "*"                    "ebot killbots"`
+
+
+
 ### E-Bot menu navigation
 Open menu commands:
 - `ebot menu` (or `ebot botmenu`) -> opens `E-Bot Main Menu`
@@ -303,4 +332,4 @@ Autowaypoint commands:
 
 Notes:
 - A few legacy names printed by old help text can be no-op in this branch.
-- Waypoint/path editing is intended for local host/listen-server editing workflow.
+

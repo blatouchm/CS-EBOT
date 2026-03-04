@@ -2811,6 +2811,7 @@ public:
 	void MaintainClients(void);
 	void DrawLine(edict_t* client, const Vector& start, const Vector& end, const Color& color, const int width, const int noise, const int speed, const int life, const int lineType = LINE_SIMPLE);
 	void DrawLineToAll(const Vector& start, const Vector& end, const Color& color, const int width, const int noise, const int speed, const int life, const int lineType = LINE_SIMPLE);
+	void DrawLineToOwners(const Vector& start, const Vector& end, const Color& color, const int width, const int noise, const int speed, const int life, const int lineType = LINE_SIMPLE);
 };
 
 #define engine Engine::GetReference()

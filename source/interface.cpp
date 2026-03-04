@@ -171,6 +171,34 @@ int BotCommandHandler_O(edict_t* ent, const char* arg0, const char* arg1, const 
 	// display some sort of help information
 	else if (!cstricmp(arg0, "?") || !cstricmp(arg0, "help"))
 	{
+		if (!IsValidPlayer(ent) || IsValidBot(ent))
+		{
+			ServerPrintNoTag("E-Bot Commands:");
+			ServerPrintNoTag("ebot version          - display version information");
+			ServerPrintNoTag("ebot about            - show bot about information");
+			ServerPrintNoTag("ebot fill             - fill the server with random e-bots");
+			ServerPrintNoTag("ebot kickall          - disconnect all e-bots from current game");
+			ServerPrintNoTag("ebot killbots         - kill all e-bots in current game");
+			ServerPrintNoTag("ebot kick             - disconnect one random e-bot");
+			ServerPrintNoTag("ebot cmenu            - display e-bot command menu");
+			ServerPrintNoTag("ebot_add              - add one e-bot in current game");
+
+			if (!cstricmp(arg1, "full") || !cstricmp(arg1, "f") || !cstricmp(arg1, "?"))
+			{
+				ServerPrintNoTag("ebot_add_t            - create one random e-bot in terrorist team");
+				ServerPrintNoTag("ebot_add_ct           - create one random e-bot in ct team");
+				ServerPrintNoTag("ebot kick_t           - disconnect one random e-bot from terrorist team");
+				ServerPrintNoTag("ebot kick_ct          - disconnect one random e-bot from ct team");
+				ServerPrintNoTag("ebot kill_t           - kill all e-bots in terrorist team");
+				ServerPrintNoTag("ebot kill_ct          - kill all e-bots in ct team");
+				ServerPrintNoTag("ebot list             - list e-bots currently playing");
+				ServerPrintNoTag("ebot order            - execute specific command on specified e-bot");
+				ServerPrintNoTag("ebot time             - display current server time");
+			}
+
+			return 0;
+		}
+
 		ClientPrint(ent, print_console, "E-Bot Commands:");
 		ClientPrint(ent, print_console, "ebot version			- display version information");
 		ClientPrint(ent, print_console, "ebot about			  - show bot about information");
@@ -336,14 +364,17 @@ int BotCommandHandler_O(edict_t* ent, const char* arg0, const char* arg1, const 
 		// enables noclip cheat
 		else if (!cstricmp(arg1, "noclip"))
 		{
+			edict_t* editor = FNullEnt(g_hostEntity) ? ent : g_hostEntity;
 			if (g_editNoclip)
 			{
-				g_hostEntity->v.movetype = MOVETYPE_WALK;
+				if (!FNullEnt(editor))
+					editor->v.movetype = MOVETYPE_WALK;
 				ServerPrint("Noclip Cheat Disabled");
 			}
 			else
 			{
-				g_hostEntity->v.movetype = MOVETYPE_NOCLIP;
+				if (!FNullEnt(editor))
+					editor->v.movetype = MOVETYPE_NOCLIP;
 				ServerPrint("Noclip Cheat Enabled");
 			}
 
@@ -353,9 +384,11 @@ int BotCommandHandler_O(edict_t* ent, const char* arg0, const char* arg1, const 
 		// switching waypoint editing off
 		else if (!cstricmp(arg1, "off"))
 		{
+			edict_t* editor = FNullEnt(g_hostEntity) ? ent : g_hostEntity;
 			g_waypointOn = false;
 			g_editNoclip = false;
-			g_hostEntity->v.movetype = MOVETYPE_WALK;
+			if (!FNullEnt(editor))
+				editor->v.movetype = MOVETYPE_WALK;
 			ServerPrint("Waypoint Editing Disabled");
 			ServerCommand("ebot wp mdl off");
 			g_waypoint->m_waypointDisplayTime.Destroy();
@@ -528,7 +561,12 @@ int BotCommandHandler_O(edict_t* ent, const char* arg0, const char* arg1, const 
 
 		// otherwise display waypoint current status
 		else
+		{
 			ServerPrint("Waypoints are %s", g_waypointOn ? "Enabled" : "Disabled");
+
+			if (IsValidPlayer(ent))
+				ClientPrint(ent, print_withtag, "Waypoints are %s", g_waypointOn ? "Enabled" : "Disabled");
+		}
 	}
 
 	// path waypoint editing system (supported only on listen server)
@@ -614,19 +652,25 @@ void CommandHandler(void)
 	// the stdio command-line parsing in C when you write "long main (long argc, char **argv)".
 
 	// check status for dedicated server command
+	const char* subCommand = (CMD_ARGC() < 2 || IsNullString(CMD_ARGV(1))) ? "help" : CMD_ARGV(1);
 	if (IsDedicatedServer())
 	{
+		bool ownerHandled = false;
 		for (const Clients& client : g_clients)
 		{
 			if (client.flags & CFLAG_OWNER && IsValidPlayer(client.ent))
 			{
+				ownerHandled = true;
 				g_hostEntity = client.ent;
-				BotCommandHandler(g_hostEntity, IsNullString(CMD_ARGV(1)) ? "help" : CMD_ARGV(1), CMD_ARGV(2), CMD_ARGV(3), CMD_ARGV(4), CMD_ARGV(5), CMD_ARGV(6));
+				BotCommandHandler(g_hostEntity, subCommand, CMD_ARGV(2), CMD_ARGV(3), CMD_ARGV(4), CMD_ARGV(5), CMD_ARGV(6));
 			}
 		}
+
+		if (!ownerHandled)
+			BotCommandHandler(nullptr, subCommand, CMD_ARGV(2), CMD_ARGV(3), CMD_ARGV(4), CMD_ARGV(5), CMD_ARGV(6));
 	}
 	else
-		BotCommandHandler(g_hostEntity, IsNullString(CMD_ARGV(1)) ? "help" : CMD_ARGV(1), CMD_ARGV(2), CMD_ARGV(3), CMD_ARGV(4), CMD_ARGV(5), CMD_ARGV(6));
+		BotCommandHandler(g_hostEntity, subCommand, CMD_ARGV(2), CMD_ARGV(3), CMD_ARGV(4), CMD_ARGV(5), CMD_ARGV(6));
 }
 
 void ebot_Version_Command(void)
@@ -983,16 +1027,26 @@ void ClientCommand(edict_t* ent)
 
 	static int fillServerTeam = 5;
 	static bool fillCommand = false;
-	if (!g_isFakeCommand && (ent == g_hostEntity || (g_clients[clientIndex].flags & CFLAG_OWNER)))
+	const char* command = CMD_ARGV(0);
+	const char* arg1 = CMD_ARGV(1);
+	const bool hasControlAccess = (ent == g_hostEntity || (g_clients[clientIndex].flags & CFLAG_OWNER));
+
+	if (!g_isFakeCommand && !cstricmp(command, "ebot"))
 	{
-		const char* command = CMD_ARGV(0);
-		const char* arg1 = CMD_ARGV(1);
-		if (!cstricmp(command, "ebot"))
+		if (!hasControlAccess)
 		{
-			BotCommandHandler(ent, IsNullString(CMD_ARGV(1)) ? "help" : CMD_ARGV(1), CMD_ARGV(2), CMD_ARGV(3), CMD_ARGV(4), CMD_ARGV(5), CMD_ARGV(6));
+			ClientPrint(ent, print_console, "You have no access to ebot commands on this server.");
 			RETURN_META(MRES_SUPERCEDE);
 		}
-		else if (!cstricmp(command, "menuselect") && !IsNullString(arg1) && g_clients[clientIndex].menu)
+
+		const char* subCommand = (CMD_ARGC() < 2 || IsNullString(CMD_ARGV(1))) ? "help" : CMD_ARGV(1);
+		BotCommandHandler(ent, subCommand, CMD_ARGV(2), CMD_ARGV(3), CMD_ARGV(4), CMD_ARGV(5), CMD_ARGV(6));
+		RETURN_META(MRES_SUPERCEDE);
+	}
+
+	if (!g_isFakeCommand && hasControlAccess)
+	{
+		if (!cstricmp(command, "menuselect") && !IsNullString(arg1) && g_clients[clientIndex].menu)
 		{
 			Clients* client = &g_clients[clientIndex];
 			const int selection = catoi(arg1);
