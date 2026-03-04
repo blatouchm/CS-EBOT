@@ -34,6 +34,75 @@ ConVar ebot_pathfinder_seed_max("ebot_pathfinder_seed_max", "1.1");
 ConVar ebot_helicopter_width("ebot_helicopter_width", "54.0");
 ConVar ebot_use_pathfinding_for_avoid("ebot_use_pathfinding_for_avoid", "1");
 
+extern ConVar ebot_analyze_max_jump_height;
+extern ConVar ebot_human_double_jump;
+extern ConVar ebot_zombie_double_jump;
+
+static inline bool IsDoubleJumpEnabledForBot(const Bot* bot) {
+  if (!bot)
+    return false;
+
+  return bot->m_isZombieBot ? ebot_zombie_double_jump.GetBool()
+                            : ebot_human_double_jump.GetBool();
+}
+
+static inline float GetBaseJumpHeightForBot(const Bot* bot) {
+  if (!bot || !bot->pev)
+    return 0.0f;
+
+  const float gravity = bot->pev->gravity > 0.0f ? bot->pev->gravity : 1.0f;
+  return ebot_analyze_max_jump_height.GetFloat() * gravity;
+}
+
+static inline bool ShouldUseDoubleJumpForGoal(const Bot* bot, const Vector& goal) {
+  if (!bot || !bot->pev || !IsDoubleJumpEnabledForBot(bot))
+    return false;
+
+  const float baseJumpHeight = GetBaseJumpHeightForBot(bot);
+  if (baseJumpHeight <= 0.0f)
+    return false;
+
+  const float goalHeight = goal.z - bot->pev->origin.z;
+  return goalHeight > baseJumpHeight && goalHeight < (baseJumpHeight * 2.0f);
+}
+
+static inline void TryStartDoubleJump(Bot* bot, const Vector& goal) {
+  if (!bot || bot->m_doubleJumpPending)
+    return;
+
+  if (!ShouldUseDoubleJumpForGoal(bot, goal))
+    return;
+
+  bot->m_doubleJumpPending = true;
+  bot->m_doubleJumpTime = engine->GetTime() + 0.3f;
+}
+
+static inline bool ProcessDoubleJump(Bot* bot) {
+  if (!bot || !bot->m_doubleJumpPending || !bot->pev)
+    return false;
+
+  const float time = engine->GetTime();
+  if (time < bot->m_doubleJumpTime)
+    return false;
+
+  const bool onFloor = !!(bot->pev->flags & (FL_ONGROUND | FL_PARTIALGROUND));
+  const bool onLadder = bot->pev->movetype == MOVETYPE_FLY;
+  const bool inWater = bot->pev->waterlevel > 2;
+
+  if (!onFloor && !onLadder && !inWater) {
+    bot->m_doubleJumpPending = false;
+    bot->m_doubleJumpTime = 0.0f;
+    return true;
+  }
+
+  if (time > bot->m_doubleJumpTime + 0.5f) {
+    bot->m_doubleJumpPending = false;
+    bot->m_doubleJumpTime = 0.0f;
+  }
+
+  return false;
+}
+
 int16_t Bot::FindGoalZombie(void) {
   if (g_waypoint->m_terrorPoints.IsEmpty()) {
     m_currentGoalIndex =
@@ -175,6 +244,9 @@ void Bot::FollowPath(void) { m_navNode.Start(); }
 // this function is a main path navigation
 void Bot::DoWaypointNav(void) {
   m_destOrigin = m_waypointOrigin;
+  if (ProcessDoubleJump(this))
+    m_buttons |= IN_JUMP;
+
   if (m_jumpReady && !m_waitForLanding) {
     if (IsOnFloor() || IsOnLadder()) {
       const Vector myOrigin = GetBottomOrigin(m_myself);
@@ -208,6 +280,7 @@ void Bot::DoWaypointNav(void) {
 
       m_duckTime = engine->GetTime() + 1.25f;
       m_buttons |= (IN_DUCK | IN_JUMP);
+      TryStartDoubleJump(this, m_waypoint.origin);
       m_jumpReady = false;
       m_waitForLanding = true;
     }
@@ -2285,8 +2358,10 @@ void Bot::CheckStuck(const Vector &directionNormal, const float finterval) {
           if (m_isZombieBot && pev->flags & FL_DUCKING) {
             m_moveSpeed = pev->maxspeed;
             m_buttons = IN_FORWARD;
-          } else
+          } else {
             m_buttons |= (IN_DUCK | IN_JUMP);
+            TryStartDoubleJump(this, m_waypoint.origin);
+          }
 
           break;
         }
@@ -2929,8 +3004,10 @@ void Bot::SetStrafeSpeed(const Vector &moveDir, const float strafeSpeed) {
     m_strafeSpeed = m_tempstrafeSpeed;
     if ((m_isStuck || pev->speed >= pev->maxspeed) && IsOnFloor() &&
         !IsOnLadder() && m_jumpTime + 5.0f < engine->GetTime() &&
-        CanJumpUp(moveDir))
+        CanJumpUp(moveDir)) {
       m_buttons |= IN_JUMP;
+      TryStartDoubleJump(this, m_waypoint.origin);
+    }
   } else if (((moveDir - pev->origin).Normalize2D() |
               g_pGlobals->v_forward.SkipZ()) > 0.0f &&
              !CheckWallOnRight())

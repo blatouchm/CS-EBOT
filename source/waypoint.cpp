@@ -33,6 +33,8 @@
 
 ConVar ebot_analyze_distance("ebot_analyze_grid_distance", "40");
 ConVar ebot_analyze_max_jump_height("ebot_analyze_max_jump_height", "62");
+ConVar ebot_human_double_jump("ebot_human_double_jump", "0");
+ConVar ebot_zombie_double_jump("ebot_zombie_double_jump", "0");
 ConVar ebot_analyze_auto_start("ebot_analyze_auto_start", "1");
 ConVar ebot_download_waypoints("ebot_download_waypoints", "0");
 ConVar ebot_download_waypoints_from("ebot_download_waypoints_from", "");
@@ -47,6 +49,27 @@ ConVar ebot_analyze_post_processing("ebot_analyze_post_processing", "2");
 
 // matrix calculation is detached, so guard matrix memory lifetime with a mutex.
 static tthread::mutex calcMutex{};
+
+static float GetAnalyzeJumpHeight(edict_t* entity)
+{
+	float jumpHeight = ebot_analyze_max_jump_height.GetFloat();
+	if (!FNullEnt(entity) && entity->v.gravity > 0.0f)
+		jumpHeight *= entity->v.gravity;
+
+	Bot* bot = g_botManager->GetBot(entity);
+	if (bot)
+	{
+		if (bot->m_isZombieBot)
+		{
+			if (ebot_zombie_double_jump.GetBool())
+				jumpHeight *= 2.0f;
+		}
+		else if (ebot_human_double_jump.GetBool())
+			jumpHeight *= 2.0f;
+	}
+
+	return jumpHeight;
+}
 
 static void StopMatrixCalculationInternal(void)
 {
@@ -2835,7 +2858,9 @@ bool Waypoint::Reachable(edict_t* entity, const int16_t index)
 
 	if (dest.z > src.z)
 	{
-		if (dest.z > src.z + ebot_analyze_max_jump_height.GetFloat())
+		const float jumpHeight = GetAnalyzeJumpHeight(entity);
+
+		if (dest.z > src.z + jumpHeight)
 			return false;
 
 		TraceResult tr;
@@ -2865,7 +2890,9 @@ bool Waypoint::IsNodeReachable(Vector src, Vector dest)
 
 	if (dest.z > src.z)
 	{
-		if (dest.z > src.z + ebot_analyze_max_jump_height.GetFloat())
+		const float jumpHeight = GetAnalyzeJumpHeight(g_hostEntity);
+
+		if (dest.z > src.z + jumpHeight)
 			return false;
 
 		TraceResult tr;

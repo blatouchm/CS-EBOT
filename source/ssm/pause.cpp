@@ -9,6 +9,8 @@ void Bot::PauseStart(void)
 	pev->speed = 0.0f;
 	m_jumpReady = false;
 	m_waitForLanding = false;
+	m_doubleJumpPending = false;
+	m_doubleJumpTime = 0.0f;
 	IgnoreCollisionShortly();
 }
 

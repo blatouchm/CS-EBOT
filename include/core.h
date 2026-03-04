@@ -629,6 +629,8 @@ public:
   bool m_isZombieBot{false};    // checks bot if zombie
   bool m_jumpReady{false};      // get ready for jump at next frame
   bool m_waitForLanding{false}; // wait until land somewhere
+  bool m_doubleJumpPending{false}; // waiting for delayed second jump
+  float m_doubleJumpTime{0.0f}; // time for delayed second jump
 
   Vector m_destOrigin{nullvec}; // origin of move destination
   Vector m_waypointOrigin{
