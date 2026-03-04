@@ -1,5 +1,8 @@
-# CS 1.6 E-BOT ![GitHub all releases](https://img.shields.io/github/downloads/EfeDursun125/CS-EBOT/total)
+# CS 1.6 E-BOT !
 AI Bot for Counter-Strike based on SyPB, this bot is only for zombie plague/escape and biohazard gamemodes.
+
+Forked from [EfeDursun125/CS-EBOT](https://github.com/EfeDursun125/CS-EBOT)
+
 
 [Click HERE To Join E-BOT Discord Community](http://discord.gg/v7PesBamXt)
 
