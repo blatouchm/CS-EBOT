@@ -1090,9 +1090,7 @@ void ClientCommand(edict_t* ent)
 
 				if (reopenWaypointMenu)
 				{
-					MenuText* menuBack = client->wpMenuBack ? client->wpMenuBack : &g_menus[9];
-					client->wpMenuBack = nullptr;
-					DisplayMenuToClient(ent, menuBack);
+					DisplayMenuToClient(ent, &g_menus[12]);
 				}
 
 				RETURN_META(MRES_SUPERCEDE);
