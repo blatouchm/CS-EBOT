@@ -2675,6 +2675,9 @@ exportc int GetEngineFunctions(enginefuncs_t* functionTable, int* /*interfaceVer
 							cmemset(&bot->m_ammo, 0, sizeof(bot->m_ammo));
 							bot->m_currentWeapon = 0;
 							bot->m_navNode.Clear();
+							bot->m_currentGoalIndex = -1;
+							bot->m_currentWaypointIndex = -1;
+							bot->m_destOrigin = bot->pev ? bot->pev->origin : nullvec;
 						}
 					}
 				}

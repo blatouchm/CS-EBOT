@@ -327,6 +327,9 @@ void NetworkMsg::Execute(void* p)
 				{
 					victimer->m_isAlive = false;
 					victimer->m_navNode.Clear();
+					victimer->m_currentGoalIndex = -1;
+					victimer->m_currentWaypointIndex = -1;
+					victimer->m_destOrigin = victimer->pev ? victimer->pev->origin : nullvec;
 					cmemset(&victimer->m_ammoInClip, 0, sizeof(victimer->m_ammoInClip));
 					cmemset(&victimer->m_ammo, 0, sizeof(victimer->m_ammo));
 					victimer->m_currentWeapon = 0;

@@ -784,6 +784,9 @@ void Bot::NewRound(void)
 {
 	// clear all allocated path nodes
 	m_navNode.Clear();
+	m_currentGoalIndex = -1;
+	m_currentWaypointIndex = -1;
+	m_destOrigin = pev ? pev->origin : nullvec;
 
 	m_team = GetTeam(m_myself);
 	m_isAlive = IsAlive(m_myself);
