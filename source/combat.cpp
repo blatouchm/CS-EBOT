@@ -277,11 +277,11 @@ void Bot::FindEnemyEntities(void)
 			continue;
 
 		m_numEntitiesLeft++;
+		origin = GetBoxOrigin(entity);
 		distance = (myOrigin - origin).GetLengthSquared();
 		if (distance < m_entityDistance)
 		{
-			// simple check
-			origin = GetBoxOrigin(entity);
+			// simple check		
 			TraceLine(myOrigin, origin, TraceIgnore::Everything, m_myself, &tr);
 			if (tr.flFraction < 1.0f)
 			{
