@@ -3382,7 +3382,18 @@ C_DLLEXPORT void Amxx_EBotSetZombie(int index, int zombie)
 	index--;
 	Bot* amxxbot = g_botManager->GetBot(index);
 	if (amxxbot)
+	{
+		const bool wasZombie = amxxbot->m_isZombieBot;
 		amxxbot->m_isZombieBot = static_cast<bool>(zombie);
+		if (!wasZombie && amxxbot->m_isZombieBot)
+		{
+			extern ConVar ebot_delay_after_infected;
+			const float delay = ebot_delay_after_infected.GetFloat();
+			amxxbot->m_infectDelayTime = engine->GetTime() + (delay > 0.0f ? delay : 0.0f);
+		}
+		else if (!amxxbot->m_isZombieBot)
+			amxxbot->m_infectDelayTime = 0.0f;
+	}
 }
 
 C_DLLEXPORT int Amxx_EBotIsAlive(int index)

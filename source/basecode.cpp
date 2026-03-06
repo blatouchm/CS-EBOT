@@ -75,6 +75,13 @@ bool Bot::CheckVisibility(edict_t *targetEntity) {
 
 bool Bot::IsEnemyViewable(edict_t *player) { return CheckVisibility(player); }
 
+bool Bot::IsInfectedDelay(void) {
+  if (!m_isZombieBot)
+    return false;
+
+  return m_infectDelayTime > engine->GetTime();
+}
+
 // this function checks buttons for use button waypoint
 edict_t *Bot::FindButton(void) {
   float nearestDistance = 9999999.0f, distance;
@@ -582,6 +589,11 @@ void Bot::BaseUpdate(void) {
           m_moveSpeed = 0.0f;
           m_strafeSpeed = 0.0f;
           UpdateProcess();
+          if (IsInfectedDelay()) {
+            m_moveSpeed = 0.0f;
+            m_strafeSpeed = 0.0f;
+            m_buttons &= ~(IN_ATTACK | IN_ATTACK2);
+          }
           MoveAction();
         } else {
           m_moveSpeed = 0.0f;
@@ -612,6 +624,7 @@ void Bot::BaseUpdate(void) {
       m_moveSpeed = 0.0f;
       m_strafeSpeed = 0.0f;
     } else {
+      const bool infectedDelay = IsInfectedDelay();
       m_msecVal = static_cast<uint8_t>((tempTimer - m_msecInterval) * 1000.0f);
       if (m_msecVal > static_cast<uint8_t>(255))
         m_msecVal = static_cast<uint8_t>(255);
@@ -621,7 +634,11 @@ void Bot::BaseUpdate(void) {
 
       m_msecInterval = tempTimer;
 
-      if (m_navNode.CanFollowPath() && CheckWaypoint()) {
+      if (infectedDelay) {
+        m_moveSpeed = 0.0f;
+        m_strafeSpeed = 0.0f;
+        m_buttons &= ~(IN_ATTACK | IN_ATTACK2);
+      } else if (m_navNode.CanFollowPath() && CheckWaypoint()) {
         m_strafeSpeed = 0.0f;
         m_moveSpeed = pev->maxspeed;
         DoWaypointNav();
@@ -846,18 +863,31 @@ void Bot::CheckSlowThink(void) {
   if (g_roundEnded) {
     m_team = Team::Terrorist;
     m_isZombieBot = true;
+    m_infectDelayTime = 0.0f;
     m_hasEnemiesNear = false;
     m_hasFriendsNear = false;
     m_nearestEnemy = nullptr;
   } else {
     m_team = GetTeam(m_myself);
-    if (m_isZombieBot != IsZombieEntity(m_myself)) {
-      m_isZombieBot = IsZombieEntity(m_myself);
+    const bool zombieNow = IsZombieEntity(m_myself);
+    if (m_isZombieBot != zombieNow) {
+      m_isZombieBot = zombieNow;
+      if (m_isZombieBot) {
+        extern ConVar ebot_delay_after_infected;
+        const float delay = ebot_delay_after_infected.GetFloat();
+        m_infectDelayTime = tempTimer + (delay > 0.0f ? delay : 0.0f);
+      } else
+        m_infectDelayTime = 0.0f;
+
       m_navNode.Clear();
       FindWaypoint();
       FindEnemyEntities();
       FindFriendsAndEnemiens();
     }
+
+    // Keep the timer clean whenever bot is human again.
+    if (!m_isZombieBot)
+      m_infectDelayTime = 0.0f;
 
     if (!m_isZombieBot && IsValidWaypoint(m_zhCampPointIndex) &&
         !g_waypoint->m_zmHmPoints.IsEmpty()) {
@@ -889,6 +919,9 @@ void Bot::CheckSlowThink(void) {
     }
   }
 
+  if (IsInfectedDelay())
+    m_buttons &= ~(IN_ATTACK | IN_ATTACK2);
+
   m_isAlive = IsAlive(m_myself);
   m_index = GetIndex() - 1;
 
@@ -908,6 +941,12 @@ bool Bot::IsAttacking(const edict_t *player) {
 
 void Bot::UpdateLooking(void) {
   if (m_isZombieBot) {
+    if (IsInfectedDelay()) {
+      m_buttons &= ~(IN_ATTACK | IN_ATTACK2);
+      LookAtAround();
+      return;
+    }
+
     if (m_hasEntitiesNear && m_entityDistance < 384.0f &&
         (m_entityDistance < m_enemyDistance || !m_hasEnemiesNear)) {
       if (!FNullEnt(m_nearestEntity)) {

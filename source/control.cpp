@@ -825,6 +825,7 @@ void Bot::NewRound(void)
 
 	m_team = GetTeam(m_myself);
 	m_isZombieBot = IsZombieEntity(m_myself);
+	m_infectDelayTime = 0.0f;
 
 	m_prevTravelFlags = 0;
 	m_currentTravelFlags = 0;

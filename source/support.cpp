@@ -32,6 +32,7 @@
 
 ConVar ebot_ignore_enemies("ebot_ignore_enemies", "0");
 ConVar ebot_zp_delay_custom("ebot_zp_delay_custom", "0.0");
+ConVar ebot_delay_after_infected("ebot_delay_after_infected", "0.0");
 
 void TraceLine(const Vector& start, const Vector& end, const int& ignoreFlags, edict_t* ignoreEntity, TraceResult* ptr)
 {

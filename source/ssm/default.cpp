@@ -9,6 +9,14 @@ void Bot::DefaultUpdate(void)
 {
 	if (m_isZombieBot)
 	{
+		if (IsInfectedDelay())
+		{
+			m_moveSpeed = 0.0f;
+			m_strafeSpeed = 0.0f;
+			m_buttons &= ~(IN_ATTACK | IN_ATTACK2);
+			return;
+		}
+
 		// nearest enemy never resets to nullptr, so bot always know where are alive humans
 		if (IsAlive(m_nearestEnemy) && GetTeam(m_nearestEnemy) != m_team)
 		{
