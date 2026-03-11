@@ -28,6 +28,7 @@ constexpr int16_t pMax = static_cast<int16_t>(Const_MaxPathIndex);
 ConVar ebot_zombies_as_path_cost("ebot_zombie_count_as_path_cost", "1");
 ConVar ebot_has_semiclip("ebot_has_semiclip", "0");
 ConVar ebot_breakable_health_limit("ebot_breakable_health_limit", "3000.0");
+ConVar ebot_touch_breakable_classnames("ebot_touch_breakable_classnames", "");
 ConVar ebot_force_shortest_path("ebot_force_shortest_path", "0");
 ConVar ebot_pathfinder_seed_min("ebot_pathfinder_seed_min", "0.9");
 ConVar ebot_pathfinder_seed_max("ebot_pathfinder_seed_max", "1.1");
@@ -101,6 +102,69 @@ static inline bool ProcessDoubleJump(Bot* bot) {
   }
 
   return false;
+}
+
+struct TouchBreakableClassCache {
+  char m_raw[256]{0};
+  char m_items[32][64]{};
+  int m_count{0};
+
+  void RefreshIfNeeded(const char *csv) {
+    if (IsNullString(csv))
+      csv = "";
+
+    if (!cstrcmp(m_raw, csv))
+      return;
+
+    cstrncpy(m_raw, csv, sizeof(m_raw));
+    m_raw[sizeof(m_raw) - 1] = '\0';
+    m_count = 0;
+
+    char token[64];
+    int tokenLen = 0;
+    for (int i = 0;; i++) {
+      const char ch = m_raw[i];
+      if (ch == ',' || ch == '\0') {
+        token[tokenLen] = '\0';
+        cstrtrim(token);
+
+        if (!IsNullString(token) &&
+            m_count < static_cast<int>(sizeof(m_items) / sizeof(m_items[0]))) {
+          cstrncpy(m_items[m_count], token, sizeof(m_items[m_count]));
+          m_items[m_count][sizeof(m_items[m_count]) - 1] = '\0';
+          m_count++;
+        }
+
+        tokenLen = 0;
+        if (ch == '\0')
+          break;
+        continue;
+      }
+
+      if (tokenLen < static_cast<int>(sizeof(token)) - 1)
+        token[tokenLen++] = ch;
+    }
+  }
+
+  bool Contains(const char *className) const {
+    if (IsNullString(className))
+      return false;
+
+    for (int i = 0; i < m_count; i++) {
+      if (!cstricmp(m_items[i], className))
+        return true;
+    }
+
+    return false;
+  }
+};
+
+static TouchBreakableClassCache s_touchBreakableClassCache;
+
+static inline bool IsExtraTouchBreakableClass(const char *className) {
+  s_touchBreakableClassCache.RefreshIfNeeded(
+      ebot_touch_breakable_classnames.GetString());
+  return s_touchBreakableClassCache.Contains(className);
 }
 
 int16_t Bot::FindGoalZombie(void) {
@@ -1815,115 +1879,130 @@ void Bot::FindEscapePath(int16_t &srcIndex, const Vector &dangerOrigin) {
 }
 
 void Bot::CheckTouchEntity(edict_t *entity) {
-  if (FNullEnt(entity))
+  if (FNullEnt(entity) || !m_isAlive)
     return;
 
-  // if we won't be able to break it, don't try
-  if (entity->v.takedamage == DAMAGE_NO)
+  if (entity == m_ignoreEntity || entity->v.takedamage == DAMAGE_NO)
     return;
 
-  // see if it's breakable
-  if ((FClassnameIs(entity, "func_breakable") ||
-       (FClassnameIs(entity, "func_pushable") &&
-        (entity->v.spawnflags & SF_PUSH_BREAKABLE)) ||
-       FClassnameIs(entity, "func_wall")) &&
-      entity->v.health > 0.0f &&
-      entity->v.health < ebot_breakable_health_limit.GetFloat()) {
-    TraceResult tr;
+  const float healthLimit = ebot_breakable_health_limit.GetFloat();
+  const float health = entity->v.health;
+  if (health <= 0.0f || health >= healthLimit)
+    return;
+
+  if (m_currentProcess == Process::DestroyBreakable && m_breakableEntity == entity)
+    return;
+
+  const bool builtInBreakable =
+      FClassnameIs(entity, "func_breakable") ||
+      (FClassnameIs(entity, "func_pushable") &&
+       (entity->v.spawnflags & SF_PUSH_BREAKABLE)) ||
+      FClassnameIs(entity, "func_wall");
+  if (!builtInBreakable &&
+      !IsExtraTouchBreakableClass(STRING(entity->v.classname)))
+    return;
+
+  TraceResult tr;
+  TraceLine(EyePosition(), m_destOrigin, TraceIgnore::Nothing, m_myself, &tr);
+  bool isBlocking = (!FNullEnt(tr.pHit) && tr.pHit == entity);
+
+  if (!isBlocking) {
     TraceHull(EyePosition(), m_waypoint.origin, TraceIgnore::Nothing, head_hull,
               m_myself, &tr);
+    isBlocking = (!FNullEnt(tr.pHit) && tr.pHit == entity);
+  }
 
+  if (!isBlocking)
+    return;
+
+  m_breakableEntity = entity;
+  m_breakableOrigin = GetBoxOrigin(entity);
+
+  const float time2 = engine->GetTime();
+  if (!SetProcess(Process::DestroyBreakable, "trying to destroy a breakable",
+                  false, time2 + 60.0f))
+    return;
+
+
+  //TODO; doesn't make sense here when this entity blocks the path
+ /* if (pev->origin.z > m_breakableOrigin.z) // make bots smarter
+  {
+    // tell my enemies to destroy it, so i will fall
+    edict_t *ent;
     TraceResult tr2;
-    TraceLine(EyePosition(), m_destOrigin, TraceIgnore::Nothing, m_myself,
-              &tr2);
+    for (const auto &enemy : g_botManager->m_bots) {
+      if (!enemy)
+        continue;
 
-    // double check
-    if ((!FNullEnt(tr.pHit) && tr.pHit == entity) ||
-        (!FNullEnt(tr2.pHit) && tr2.pHit == entity)) {
-      m_breakableEntity = entity;
-      m_breakableOrigin = GetBoxOrigin(m_breakableEntity);
+      if (m_team == enemy->m_team)
+        continue;
 
-      const float time2 = engine->GetTime();
-      SetProcess(Process::DestroyBreakable, "trying to destroy a breakable",
-                 false, time2 + 60.0f);
+      if (!enemy->m_isAlive)
+        continue;
 
-      if (pev->origin.z > m_breakableOrigin.z) // make bots smarter
-      {
-        // tell my enemies to destroy it, so i will fall
-        edict_t *ent;
-        for (const auto &enemy : g_botManager->m_bots) {
-          if (!enemy)
-            continue;
+      if (enemy->m_isZombieBot)
+        continue;
 
-          if (m_team == enemy->m_team)
-            continue;
+      if (enemy->m_currentWeapon == Weapon::Knife)
+        continue;
 
-          if (!enemy->m_isAlive)
-            continue;
+      ent = enemy->m_myself;
+      if (FNullEnt(ent))
+        continue;
 
-          if (enemy->m_isZombieBot)
-            continue;
+      TraceHull(enemy->EyePosition(), m_breakableOrigin, TraceIgnore::Nothing,
+                point_hull, ent, &tr);
+      TraceHull(ent->v.origin, m_breakableOrigin, TraceIgnore::Nothing,
+                head_hull, ent, &tr2);
+      if ((!FNullEnt(tr.pHit) && tr.pHit == entity) ||
+          (!FNullEnt(tr2.pHit) && tr2.pHit == entity)) {
+        enemy->m_breakableEntity = entity;
+        enemy->m_breakableOrigin = m_breakableOrigin;
+        enemy->SetProcess(Process::DestroyBreakable,
+                          "trying to destroy a breakable for my enemy fall",
+                          false, time2 + 60.0f);
+      }
+    }
+  } else if (!m_isZombieBot) // tell my friends to destroy it
+  {
+    edict_t *ent;
+    TraceResult tr2;
+    for (Bot *const &bot : g_botManager->m_bots) {
+      if (!bot)
+        continue;
 
-          if (enemy->m_currentWeapon == Weapon::Knife)
-            continue;
+      if (m_team != bot->m_team)
+        continue;
 
-          ent = enemy->m_myself;
-          if (FNullEnt(ent))
-            continue;
+      if (!bot->m_isAlive)
+        continue;
 
-          TraceHull(enemy->EyePosition(), m_breakableOrigin,
-                    TraceIgnore::Nothing, point_hull, ent, &tr);
-          TraceHull(ent->v.origin, m_breakableOrigin, TraceIgnore::Nothing,
-                    head_hull, ent, &tr2);
-          if ((!FNullEnt(tr.pHit) && tr.pHit == entity) ||
-              (!FNullEnt(tr2.pHit) && tr2.pHit == entity)) {
-            enemy->m_breakableEntity = entity;
-            enemy->m_breakableOrigin = m_breakableOrigin;
-            enemy->SetProcess(Process::DestroyBreakable,
-                              "trying to destroy a breakable for my enemy fall",
-                              false, time2 + 60.0f);
-          }
-        }
-      } else if (!m_isZombieBot) // tell my friends to destroy it
-      {
-        edict_t *ent;
-        for (Bot *const &bot : g_botManager->m_bots) {
-          if (!bot)
-            continue;
+      if (bot->m_isZombieBot)
+        continue;
 
-          if (m_team != bot->m_team)
-            continue;
+      ent = bot->m_myself;
+      if (FNullEnt(ent))
+        continue;
 
-          if (!bot->m_isAlive)
-            continue;
+      if (m_myself == ent)
+        continue;
 
-          if (bot->m_isZombieBot)
-            continue;
+      TraceHull(bot->EyePosition(), m_breakableOrigin, TraceIgnore::Nothing,
+                point_hull, ent, &tr);
+      TraceHull(ent->v.origin, m_breakableOrigin, TraceIgnore::Nothing,
+                head_hull, ent, &tr2);
 
-          ent = bot->m_myself;
-          if (FNullEnt(ent))
-            continue;
-
-          if (m_myself == ent)
-            continue;
-
-          TraceHull(bot->EyePosition(), m_breakableOrigin, TraceIgnore::Nothing,
-                    point_hull, ent, &tr);
-          TraceHull(ent->v.origin, m_breakableOrigin, TraceIgnore::Nothing,
-                    head_hull, ent, &tr2);
-
-          if ((!FNullEnt(tr.pHit) && tr.pHit == entity) ||
-              (!FNullEnt(tr2.pHit) && tr2.pHit == entity)) {
-            bot->m_breakableEntity = entity;
-            bot->m_breakableOrigin = m_breakableOrigin;
-            bot->SetProcess(Process::DestroyBreakable,
-                            "trying to help my friend for destroy a breakable",
-                            false, time2 + 60.0f);
-          }
-        }
+      if ((!FNullEnt(tr.pHit) && tr.pHit == entity) ||
+          (!FNullEnt(tr2.pHit) && tr2.pHit == entity)) {
+        bot->m_breakableEntity = entity;
+        bot->m_breakableOrigin = m_breakableOrigin;
+        bot->SetProcess(Process::DestroyBreakable,
+                        "trying to help my friend for destroy a breakable",
+                        false, time2 + 60.0f);
       }
     }
   }
+  */
 }
 
 int16_t Bot::FindWaypoint(void) {

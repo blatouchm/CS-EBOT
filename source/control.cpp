@@ -36,6 +36,7 @@ ConVar ebot_ping("ebot_fake_ping", "0");
 ConVar ebot_display_avatar("ebot_display_avatar", "0");
 
 ConVar ebot_keep_slots("ebot_keep_slots", "1");
+ConVar ebot_kill_bots_when_all_humans_dead("ebot_kill_bots_when_all_humans_dead", "0");
 
 // this is a bot manager class constructor
 BotControl::BotControl(void)
@@ -269,6 +270,79 @@ void BotControl::Think(void)
 			bot->m_updateTimer = time2 + 0.025f;
 		}
 	}
+}
+
+void BotControl::SlowFrameCheck(void)
+{
+	const float time2 = engine->GetTime();
+
+	const float noAliveHumansDelay = ebot_kill_bots_when_all_humans_dead.GetFloat();
+	if (noAliveHumansDelay <= 0.0f)
+	{
+		m_noAliveHumansTime = 0.0f;
+		return;
+	}
+
+	int humanPlayers = 0;
+	int aliveHumanPlayers = 0;
+	const int maxClients = cmin(engine->GetMaxClients(), 32);
+
+	for (int i = 0; i < maxClients; i++)
+	{
+		const Clients& client = g_clients[i];
+		if (!(client.flags & CFLAG_USED) || FNullEnt(client.ent))
+			continue;
+
+		if (client.ent->v.flags & FL_FAKECLIENT)
+			continue;
+
+		if (client.team != Team::Counter)
+			continue;
+
+		humanPlayers++;
+		if (client.flags & CFLAG_ALIVE)
+			aliveHumanPlayers++;
+	}
+
+	if (humanPlayers < 1 || aliveHumanPlayers > 0)
+	{
+		m_noAliveHumansTime = 0.0f;
+		return;
+	}
+
+	if (m_noAliveHumansTime < 0.001f)
+	{
+		m_noAliveHumansTime = time2 + noAliveHumansDelay;
+		return;
+	}
+
+	if (m_noAliveHumansTime > time2)
+		return;
+
+	bool hasAliveBot = false;
+	for (Bot* const& bot : m_bots)
+	{
+		if (bot && IsAlive(bot->m_myself))
+		{
+			hasAliveBot = true;
+			break;
+		}
+	}
+
+	if (hasAliveBot)
+	{
+		KillAll();
+		for (int i = 0; i < maxClients; i++)
+		{
+			const Clients& client = g_clients[i];
+			if (!(client.flags & CFLAG_USED) || FNullEnt(client.ent))
+				continue;
+
+			ClientPrint(client.ent, print_chat, "[E-BOT] Bots were killed: no alive real players in human team for %.1f sec.", noAliveHumansDelay);
+		}
+	}
+
+	m_noAliveHumansTime = time2 + noAliveHumansDelay;
 }
 
 // this function putting bot creation process to queue to prevent engine crashes

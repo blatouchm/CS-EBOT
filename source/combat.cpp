@@ -26,6 +26,7 @@
 
 ConVar ebot_zombie_wall_hack("ebot_zombie_wall_hack", "0");
 ConVar ebot_dark_mode("ebot_dark_mode", "0");
+ConVar ebot_human_target_max_distance("ebot_human_target_max_distance", "-1");
 
 int Bot::GetNearbyFriendsNearPosition(const Vector& origin, const float radius)
 {
@@ -89,6 +90,9 @@ void Bot::FindFriendsAndEnemiens(void)
 	float distance;
 	TraceResult tr;
 	const Vector myOrigin = EyePosition();
+	const float maxTargetDistance = ebot_human_target_max_distance.GetFloat();
+	const bool limitHumanTargets = !m_isZombieBot && maxTargetDistance >= 0.0f;
+	const float maxTargetDistanceSq = squaredf(maxTargetDistance);
 	int16_t myWP = m_currentWaypointIndex;
 	if (!IsValidWaypoint(myWP))
 		myWP = g_clients[m_index].wp;
@@ -211,6 +215,13 @@ void Bot::FindFriendsAndEnemiens(void)
 			else
 			{
 				m_numEnemiesLeft++;
+				if (limitHumanTargets)
+				{
+					const float directDistanceSq = (myOrigin - (client.ent->v.origin + client.ent->v.view_ofs)).GetLengthSquared();
+					if (directDistanceSq > maxTargetDistanceSq)
+						continue;
+				}
+
 				distance = GetDistance(myWP, client.wp);
 				if (distance < m_enemyDistance)
 				{
@@ -235,6 +246,24 @@ void Bot::FindFriendsAndEnemiens(void)
 					m_hasEnemiesNear = true;
 				}
 			}
+		}
+	}
+
+	if (limitHumanTargets && m_isSlowThink)
+	{
+		bool targetTooFar = false;
+		if (m_hasEnemiesNear && !FNullEnt(m_nearestEnemy))
+		{
+			const float currentDistanceSq = (myOrigin - (m_nearestEnemy->v.origin + m_nearestEnemy->v.view_ofs)).GetLengthSquared();
+			targetTooFar = currentDistanceSq > maxTargetDistanceSq;
+		}
+
+		if (targetTooFar)
+		{
+			m_hasEnemiesNear = false;
+			m_isEnemyReachable = false;
+			m_enemyDistance = 999999.0f;
+			m_buttons &= ~(IN_ATTACK | IN_ATTACK2);
 		}
 	}
 

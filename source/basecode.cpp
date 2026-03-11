@@ -876,6 +876,7 @@ void Bot::CheckSlowThink(void) {
         extern ConVar ebot_delay_after_infected;
         const float delay = ebot_delay_after_infected.GetFloat();
         m_infectDelayTime = tempTimer + (delay > 0.0f ? delay : 0.0f);
+        m_slowThinkTimer = 0.0f;
       } else
         m_infectDelayTime = 0.0f;
 

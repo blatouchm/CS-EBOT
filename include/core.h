@@ -484,6 +484,8 @@ public:
 
   Vector m_breakableOrigin{nullvec};   // origin of the breakable
   edict_t *m_breakableEntity{nullptr}; // pointer to breakable entity
+  uint8_t m_breakableAttackStep{0};    // 0-5: 3x center, 3x travel direction
+  float m_breakableAttackTime{0.0f};   // next melee attack time on breakables
   edict_t *m_ignoreEntity{nullptr};    // pointer to entity to ignore
   edict_t *m_buttonEntity{nullptr};    // pointer to button entity
 
@@ -825,6 +827,7 @@ class BotControl : public Singleton<BotControl> {
 private:
   CArray<CreateItem> m_creationTab; // bot creation tab
   float m_maintainTime{0.0f};       // time to maintain bot creation quota
+  float m_noAliveHumansTime{0.0f}; // timer for killing bots if all human players are dead
 protected:
   int CreateBot(char name[32], int skill, int personality, const int team,
                 const int member);
@@ -847,6 +850,7 @@ public:
   int GetHumansNum(void);
 
   void Think(void);
+  void SlowFrameCheck(void);
   void Free(void);
   void Free(const int index);
 
@@ -968,7 +972,7 @@ private:
   float m_arrowDisplayTime{0.0f};
   int16_t m_findWPIndex{-1};
   int16_t m_facingAtIndex{-1};
-  char m_infoBuffer[256]{"\0"};
+  char m_infoBuffer[256] = { 0 };
 
   CArray<int16_t> m_terrorPoints;
   CArray<int16_t> m_zmHmPoints;

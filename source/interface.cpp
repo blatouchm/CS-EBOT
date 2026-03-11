@@ -2470,6 +2470,7 @@ inline void JustAStuff(void)
 inline void FrameThread(void)
 {
 	LoadEntityData();
+	g_botManager->SlowFrameCheck();
 	JustAStuff();
 
 	if (ebot_running_on_xash.GetBool())
@@ -3390,6 +3391,7 @@ C_DLLEXPORT void Amxx_EBotSetZombie(int index, int zombie)
 			extern ConVar ebot_delay_after_infected;
 			const float delay = ebot_delay_after_infected.GetFloat();
 			amxxbot->m_infectDelayTime = engine->GetTime() + (delay > 0.0f ? delay : 0.0f);
+			amxxbot->m_slowThinkTimer = 0.0f;
 		}
 		else if (!amxxbot->m_isZombieBot)
 			amxxbot->m_infectDelayTime = 0.0f;
