@@ -283,8 +283,15 @@ void BotControl::SlowFrameCheck(void)
 		return;
 	}
 
-	int humanPlayers = 0;
-	int aliveHumanPlayers = 0;
+	const int realPlayersOnServer = GetHumansNum();
+	if (realPlayersOnServer <= 0)
+	{
+		m_noAliveHumansTime = 0.0f;
+		return;
+	}
+
+	int realHumanPlayers = 0;
+	int aliveRealHumanPlayers = 0;
 	const int maxClients = cmin(engine->GetMaxClients(), 32);
 
 	for (int i = 0; i < maxClients; i++)
@@ -293,18 +300,18 @@ void BotControl::SlowFrameCheck(void)
 		if (!(client.flags & CFLAG_USED) || FNullEnt(client.ent))
 			continue;
 
-		if (client.ent->v.flags & FL_FAKECLIENT)
+		if (client.index < 0 || m_bots[client.index])
 			continue;
 
 		if (client.team != Team::Counter)
 			continue;
 
-		humanPlayers++;
+		realHumanPlayers++;
 		if (client.flags & CFLAG_ALIVE)
-			aliveHumanPlayers++;
+			aliveRealHumanPlayers++;
 	}
 
-	if (humanPlayers < 1 || aliveHumanPlayers > 0)
+	if (aliveRealHumanPlayers > 0)
 	{
 		m_noAliveHumansTime = 0.0f;
 		return;
@@ -452,10 +459,10 @@ void BotControl::InitQuota(void)
 void BotControl::FillServer(int selection, const int personality, const int skill, const int numToAdd)
 {
 	const int maxClients = engine->GetMaxClients();
-	const int getHumansNum = GetHumansNum();
+	const int getRealPlayersNum = GetHumansNum();
 	const int getBotsNum = GetBotsNum();
 
-	if (getBotsNum >= (maxClients - getHumansNum))
+	if (getBotsNum >= (maxClients - getRealPlayersNum))
 		return;
 
 	if (selection == 1 || selection == 2)
@@ -476,7 +483,7 @@ void BotControl::FillServer(int selection, const int personality, const int skil
 	   {"Random"},
 	};
 
-	const int toAdd = numToAdd == -1 ? (maxClients - (getHumansNum + getBotsNum)) : numToAdd;
+	const int toAdd = numToAdd == -1 ? (maxClients - (getRealPlayersNum + getBotsNum)) : numToAdd;
 	int i, randomizedSkill;
 	for (i = 0; i < toAdd; i++)
 	{
@@ -674,13 +681,26 @@ int BotControl::GetBotsNum(void)
 int BotControl::GetHumansNum(void)
 {
 	int count = 0;
-	for (const auto& client : g_clients)
+	const int maxClients = cmin(engine->GetMaxClients(), 32);
+	for (int i = 0; i < maxClients; i++)
 	{
-		if (client.index < 0)
+		const Clients& client = g_clients[i];
+		if (!(client.flags & CFLAG_USED) || FNullEnt(client.ent))
 			continue;
 
-		if (!m_bots[client.index])
-			count++;
+		if (!(client.ent->v.flags & FL_CLIENT))
+			continue;
+
+		if (client.ent->v.flags & FL_FAKECLIENT)
+			continue;
+
+		if (m_bots[i])
+			continue;		
+
+		if (client.ent->v.flags & FL_PROXY)
+			continue;
+
+		count++;
 	}
 
 	return count;

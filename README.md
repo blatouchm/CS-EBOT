@@ -29,7 +29,7 @@ If you see badf load on console (when you type "meta list") install this.
 6. (For Linux) Add that line "linux addons/ebot/dlls/ebot.so" and save it.
 
 
-# How to use (local client server)
+# How to use - local listen server (client)
 1. Write this to client console: `bind k "ebot menu"`
 2. Write this to client console: `bind j "ebot wp menu"`
 
@@ -38,7 +38,7 @@ Press `j` or `k` and you can manage waypoints and bots.
 (NOTE: Editing waypoints/paths with bots may cause crashes)
 
 
-# How to use (dedicated server)
+# How to use - dedicated server
 1. Set password in ebot.cfg, for example: `ebot_password_key "39532"`
 2. Write this to client console: `setinfo ebot_pass "39532"`
 3. Restart server

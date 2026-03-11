@@ -166,6 +166,8 @@
       <EnableUAC>false</EnableUAC>
       <AllowIsolation>true</AllowIsolation>
       <PreventDllBinding>true</PreventDllBinding>
+      <ShowProgress>NotSet</ShowProgress>
+      <AdditionalOptions>/VERBOSE:LIB %(AdditionalOptions)</AdditionalOptions>
     </Link>
     <Manifest>
       <SuppressDependencyElement>true</SuppressDependencyElement>

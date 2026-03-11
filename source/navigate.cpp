@@ -2621,10 +2621,10 @@ void Bot::ChangeWptIndex(const int16_t waypointIndex) {
     return;
 
   if (m_prevWptIndex[0] != m_currentWaypointIndex) {
-    m_prevWptIndex[0] = m_currentWaypointIndex;
-    m_prevWptIndex[1] = m_prevWptIndex[0];
-    m_prevWptIndex[2] = m_prevWptIndex[1];
     m_prevWptIndex[3] = m_prevWptIndex[2];
+    m_prevWptIndex[2] = m_prevWptIndex[1];
+    m_prevWptIndex[1] = m_prevWptIndex[0];
+    m_prevWptIndex[0] = m_currentWaypointIndex;
   }
 
   m_waypoint = g_waypoint->m_paths[waypointIndex];

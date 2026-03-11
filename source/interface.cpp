@@ -34,6 +34,8 @@ ConVar ebot_showwp("ebot_show_waypoints", "0");
 ConVar ebot_analyze_create_goal_waypoints("ebot_analyze_starter_waypoints", "1");
 ConVar ebot_running_on_xash("ebot_running_on_xash", "0");
 
+extern ConVar ebot_delay_after_infected;
+
 static float secondTimer{0.0f};
 void ebotVersionMSG(edict_t* entity = nullptr)
 {
@@ -3388,7 +3390,6 @@ C_DLLEXPORT void Amxx_EBotSetZombie(int index, int zombie)
 		amxxbot->m_isZombieBot = static_cast<bool>(zombie);
 		if (!wasZombie && amxxbot->m_isZombieBot)
 		{
-			extern ConVar ebot_delay_after_infected;
 			const float delay = ebot_delay_after_infected.GetFloat();
 			amxxbot->m_infectDelayTime = engine->GetTime() + (delay > 0.0f ? delay : 0.0f);
 			amxxbot->m_slowThinkTimer = 0.0f;
