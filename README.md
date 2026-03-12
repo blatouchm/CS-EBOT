@@ -15,10 +15,6 @@ Forked from [EfeDursun125/CS-EBOT](https://github.com/EfeDursun125/CS-EBOT)
 
 [Please Download From The Blog For Support This Project](https://ebots-for-cs.blogspot.com/)
 
-# E-Bot Requires VCRedist (For Windows)
-If you see badf load on console (when you type "meta list") install this.
-
-[Click HERE To Download](https://aka.ms/vs/17/release/vc_redist.x86.exe)
 
 # How to install
 1. Download & install metamod if you dont have.

@@ -561,7 +561,7 @@ void Bot::DoWaypointNav(void) {
             m_enemyOrigin = m_nearestEnemy->v.origin;
             break;
           }
-        } else {
+        } else if (client.team == m_team && !ebot_has_semiclip.GetBool()) {
           TraceHull(EyePosition(), m_destOrigin, TraceIgnore::Monsters,
                     (pev->flags & FL_DUCKING) ? head_hull : human_hull,
                     m_myself, &tr);
