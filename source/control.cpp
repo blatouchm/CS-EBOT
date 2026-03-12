@@ -37,6 +37,7 @@ ConVar ebot_display_avatar("ebot_display_avatar", "0");
 
 ConVar ebot_keep_slots("ebot_keep_slots", "1");
 ConVar ebot_kill_bots_when_all_humans_dead("ebot_kill_bots_when_all_humans_dead", "0");
+ConVar ebot_human_no_camp_percent("ebot_human_no_camp_percent", "0");
 
 // this is a bot manager class constructor
 BotControl::BotControl(void)
@@ -884,6 +885,11 @@ void Bot::NewRound(void)
 
 	m_team = GetTeam(m_myself);
 	m_isAlive = IsAlive(m_myself);
+	m_isZombieBot = IsZombieEntity(m_myself);
+	const float noCampPercent = cclampf(ebot_human_no_camp_percent.GetFloat(), 0.0f, 100.0f);
+	m_skipHumanCampThisRound = !m_isZombieBot &&
+		(m_personality == Personality::Rusher) &&
+		(crandomfloat(0.0f, 100.0f) < noCampPercent);
 	if (!m_isAlive) // if bot died, clear all weapon stuff and force buying again
 	{
 		cmemset(&m_ammoInClip, 0, sizeof(m_ammoInClip));
@@ -904,7 +910,7 @@ void Bot::NewRound(void)
 	m_rememberedProcess = Process::Default;
 	m_rememberedProcessTime = 0.0f;
 
-	if (!g_waypoint->m_zmHmPoints.IsEmpty())
+	if (!m_skipHumanCampThisRound && !g_waypoint->m_zmHmPoints.IsEmpty())
 	{
 		m_zhCampPointIndex = g_waypoint->m_zmHmPoints.Random();
 		m_currentGoalIndex = m_zhCampPointIndex;
@@ -917,8 +923,6 @@ void Bot::NewRound(void)
 	m_hasEntitiesNear = false;
 	m_hasFriendsNear = false;
 
-	m_team = GetTeam(m_myself);
-	m_isZombieBot = IsZombieEntity(m_myself);
 	m_infectDelayTime = 0.0f;
 
 	m_prevTravelFlags = 0;

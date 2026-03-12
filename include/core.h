@@ -632,6 +632,7 @@ public:
   bool m_isAlive{false}; // has the player been killed or has he just respawned
   bool m_notStarted{false};     // team/class not chosen yet
   bool m_isZombieBot{false};    // checks bot if zombie
+  bool m_skipHumanCampThisRound{false}; // human bot ignores camp waypoints for this round
   float m_infectDelayTime{0.0f}; // delay after human -> zombie infection
   bool m_jumpReady{false};      // get ready for jump at next frame
   bool m_waitForLanding{false}; // wait until land somewhere

@@ -193,9 +193,43 @@ inline float GetWaypointDistance(const int16_t &start, const int16_t &goal) {
                               g_waypoint->m_paths[goal].origin);
 }
 
+static inline bool IsFlaglessWaypoint(const int16_t index) {
+  if (!IsValidWaypoint(index))
+    return false;
+
+  return g_waypoint->m_paths[index].flags == 0;
+}
+
 int16_t Bot::FindGoalHuman(void) {
   if (!IsValidWaypoint(m_currentWaypointIndex))
     FindWaypoint();
+
+  if (m_skipHumanCampThisRound) {
+    int16_t candidate = -1;
+    for (int attempt = 0; attempt < 64; attempt++) {
+      const int16_t randomIndex =
+          static_cast<int16_t>(crandomint(0, g_numWaypoints - 1));
+      if (IsFlaglessWaypoint(randomIndex)) {
+        candidate = randomIndex;
+        break;
+      }
+    }
+
+    if (!IsValidWaypoint(candidate)) {
+      for (int16_t i = 0; i < g_numWaypoints; i++) {
+        if (IsFlaglessWaypoint(i)) {
+          candidate = i;
+          break;
+        }
+      }
+    }
+
+    if (!IsValidWaypoint(candidate))
+      candidate = static_cast<int16_t>(crandomint(0, g_numWaypoints - 1));
+
+    m_currentGoalIndex = candidate;
+    return m_currentGoalIndex;
+  }
 
   if (IsValidWaypoint(m_myMeshWaypoint)) {
     m_currentGoalIndex = m_myMeshWaypoint;
@@ -353,9 +387,23 @@ void Bot::DoWaypointNav(void) {
   }
 
   if (m_waitForLanding) {
-    if (IsOnFloor() || IsOnLadder() || IsInWater())
-      SetProcess(Process::Pause, "waiting a bit for next jump", true,
-                 engine->GetTime() + crandomfloat(0.1f, 0.35f));
+    auto clearLandingWait = [&]() {
+      m_waitForLanding = false;
+      m_jumpReady = false;
+      m_doubleJumpPending = false;
+      m_doubleJumpTime = 0.0f;
+    };
+
+    if (IsOnLadder()) {
+      clearLandingWait();
+      return;
+    }
+
+    if (IsOnFloor() || IsInWater()) {
+      if (!SetProcess(Process::Pause, "waiting a bit for next jump", true,
+                      engine->GetTime() + crandomfloat(0.1f, 0.35f)))
+        clearLandingWait();
+    }
 
     return;
   }
