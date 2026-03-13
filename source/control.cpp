@@ -619,11 +619,13 @@ void BotControl::RemoveMenu(edict_t* ent, const int selection)
 // this function kills all bots on server (only this dll controlled bots)
 void BotControl::KillAll(const int team)
 {
+	const bool filterByTeam = (team == Team::Terrorist || team == Team::Counter);
+
 	for (const auto &bot : m_bots)
 	{
 		if (bot)
 		{
-			if (team != Team::Count && team != bot->m_team)
+			if (filterByTeam && team != bot->m_team)
 				continue;
 
 			bot->Kill();

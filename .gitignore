@@ -1,4 +1,6 @@
-project/build/
-project/ebot_release
+project/build
+project/build_win
 project/.vs/
+amxx_bridge/build
+amxx_bridge/build_win
 AGENTS.md

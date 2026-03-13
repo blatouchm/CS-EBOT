@@ -3424,51 +3424,126 @@ C_DLLEXPORT int Amxx_EBotGetWaypointNumer(void)
 
 C_DLLEXPORT void Amxx_EBotGetWaypointOrigin(int index, Vector** origin)
 {
-	Vector origin2;
-	origin2 = g_waypoint->GetPath(index)->origin;
-	*origin = &origin2;
+	if (!origin)
+		return;
+
+	*origin = nullptr;
+	if (!IsValidWaypoint(index))
+		return;
+
+	Path* path = g_waypoint->GetPath(index);
+	if (!path)
+		return;
+
+	*origin = &path->origin;
 }
 
 C_DLLEXPORT void Amxx_EBotGetWaypointFlags(int index, int** flags)
 {
-	int flags2;
-	flags2 = static_cast<int>(g_waypoint->GetPath(index)->flags);
-	*flags = &flags2;
+	if (!flags)
+		return;
+
+	*flags = nullptr;
+	if (!IsValidWaypoint(index))
+		return;
+
+	Path* path = g_waypoint->GetPath(index);
+	if (!path)
+		return;
+
+	static int value = 0;
+	value = static_cast<int>(path->flags);
+	*flags = &value;
 }
 
 C_DLLEXPORT void Amxx_EBotGetWaypointRadius(int index, int** radius)
 {
-	int radius2;
-	radius2 = static_cast<int>(g_waypoint->GetPath(index)->radius);
-	*radius = &radius2;
+	if (!radius)
+		return;
+
+	*radius = nullptr;
+	if (!IsValidWaypoint(index))
+		return;
+
+	Path* path = g_waypoint->GetPath(index);
+	if (!path)
+		return;
+
+	static int value = 0;
+	value = static_cast<int>(path->radius);
+	*radius = &value;
 }
 
 C_DLLEXPORT void Amxx_EBotGetWaypointMesh(int index, int** mesh)
 {
-	int mesh2;
-	mesh2 = static_cast<int>(g_waypoint->GetPath(index)->mesh);
-	*mesh = &mesh2;
+	if (!mesh)
+		return;
+
+	*mesh = nullptr;
+	if (!IsValidWaypoint(index))
+		return;
+
+	Path* path = g_waypoint->GetPath(index);
+	if (!path)
+		return;
+
+	static int value = 0;
+	value = static_cast<int>(path->mesh);
+	*mesh = &value;
 }
 
 C_DLLEXPORT void Amxx_EBotGetWaypointConnections(int index2, int** coni, int num)
 {
-	int coni2;
-	coni2 = static_cast<int>(g_waypoint->GetPath(index2)->index[num]);
-	*coni = &coni2;
+	if (!coni)
+		return;
+
+	*coni = nullptr;
+	if (!IsValidWaypoint(index2) || num < 0 || num >= Const_MaxPathIndex)
+		return;
+
+	Path* path = g_waypoint->GetPath(index2);
+	if (!path)
+		return;
+
+	static int value = 0;
+	value = static_cast<int>(path->index[num]);
+	*coni = &value;
 }
 
 C_DLLEXPORT void Amxx_EBotGetWaypointConnectionFlags(int index, int** coni, int num)
 {
-	int coni2;
-	coni2 = static_cast<int>(g_waypoint->GetPath(index)->connectionFlags[num]);
-	*coni = &coni2;
+	if (!coni)
+		return;
+
+	*coni = nullptr;
+	if (!IsValidWaypoint(index) || num < 0 || num >= Const_MaxPathIndex)
+		return;
+
+	Path* path = g_waypoint->GetPath(index);
+	if (!path)
+		return;
+
+	static int value = 0;
+	value = static_cast<int>(path->connectionFlags[num]);
+	*coni = &value;
 }
 
 C_DLLEXPORT void Amxx_EBotGetWaypointGravity(int index, float** gravity)
 {
-	float gravity2;
-	gravity2 = g_waypoint->GetPath(index)->gravity;
-	*gravity = &gravity2;
+	if (!gravity)
+		return;
+
+	*gravity = nullptr;
+	if (!IsValidWaypoint(index))
+		return;
+
+	Path* path = g_waypoint->GetPath(index);
+	if (!path)
+		return;
+
+	static float value = 0.0f;
+	value = path->gravity;
+	*gravity = &value;
 }
 
 C_DLLEXPORT void Amxx_EBotMoveTo(int index, Vector origin, int checkStuck)
@@ -3635,6 +3710,24 @@ C_DLLEXPORT int Amxx_EBotIsNodeReachable(Vector src, Vector dest)
 C_DLLEXPORT int Amxx_EBotFindNearestWaypoint(Vector origin, float minDistance)
 {
 	return static_cast<int>(g_waypoint->FindNearest(origin, minDistance));
+}
+
+C_DLLEXPORT int Amxx_EBotFindRandomWaypointNoFlags(void)
+{
+	if (g_numWaypoints < 1)
+		return -1;
+
+	int attempts = 0;
+	while (attempts < 100)
+	{
+		const int16_t randomIndex = static_cast<int16_t>(crandomint(0, g_numWaypoints - 1));
+		if (!g_waypoint->m_paths[randomIndex].flags)
+			return static_cast<int>(randomIndex);
+
+		attempts++;
+	}
+
+	return -1;
 }
 
 C_DLLEXPORT int Amxx_EBotFindFarestWaypoint(Vector origin, float minDistance)
