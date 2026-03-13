@@ -71,6 +71,18 @@ public plugin_init()
 		set_fail_state("EBot bridge/EBot is not loaded");
 	}
 }
+
+public ze_zombie_release()
+{
+  //Returns a random normal waypoint (without flags like crouch/ladder/camp etc.)
+  new wp = Amxx_EBotFindRandomWaypointNoFlags();
+  if (wp != -1) {
+					 
+	  new Float:origin[3];
+	  if(Amxx_EBotGetWaypointOrigin(wp, origin))
+		create_some_box ( origin ) 
+  }  
+}
 ```
 
 ## Notes
