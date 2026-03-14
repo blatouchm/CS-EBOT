@@ -737,7 +737,7 @@ void Bot::BaseUpdate(void) {
       pev->angles.ClampAngles();
     }
 
-    // FIXME: crash
+
     g_engfuncs.pfnRunPlayerMove(m_myself, m_moveAngles, m_moveSpeed,
                                 m_strafeSpeed, 0.0f, m_buttons, m_impulse,
                                 m_msecVal);
