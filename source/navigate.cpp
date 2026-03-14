@@ -1941,6 +1941,10 @@ void Bot::CheckTouchEntity(edict_t *entity) {
   if (m_currentProcess == Process::DestroyBreakable && m_breakableEntity == entity)
     return;
 
+  //player is ignored
+  if (entity->v.flags & (FL_CLIENT | FL_FAKECLIENT))
+      return;
+
   const bool builtInBreakable =
       FClassnameIs(entity, "func_breakable") ||
       (FClassnameIs(entity, "func_pushable") &&
