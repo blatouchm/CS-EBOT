@@ -35,6 +35,7 @@ ConVar ebot_pathfinder_seed_max("ebot_pathfinder_seed_max", "1.1");
 ConVar ebot_helicopter_width("ebot_helicopter_width", "54.0");
 ConVar ebot_use_pathfinding_for_avoid("ebot_use_pathfinding_for_avoid", "1");
 ConVar ebot_leap_zombies("ebot_leap_zombies", "0");
+ConVar ebot_debug_jump("ebot_debug_jump", "0");
 
 extern ConVar ebot_analyze_max_jump_height;
 extern ConVar ebot_human_double_jump;
@@ -399,7 +400,7 @@ void Bot::DoWaypointNav(void) {
       ladderJumpVisible &&
       InFieldOfView(ladderJumpAimTarget - EyePosition()) <= 10.0f;
   const float currentTime = engine->GetTime();
-  const bool debugJump = ebot_debug.GetBool();
+  const bool debugJump = ebot_debug_jump.GetBool();
   auto getGroundJumpLookIndex = [&]() -> int16_t {
     int16_t jumpLookIndex = m_navNode.HasNext() ? m_navNode.Next() : -1;
     if (!IsValidWaypoint(jumpLookIndex) && IsValidWaypoint(m_currentWaypointIndex))
