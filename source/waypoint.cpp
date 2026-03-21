@@ -2007,7 +2007,7 @@ void Waypoint::StopMatrixCalculation(void)
 	StopMatrixCalculationInternal();
 }
 
-void Waypoint::InitPathMatrix(void)
+void Waypoint::InitPathMatrix(bool forceRebuild)
 {
 	StopMatrixCalculationInternal();
 
@@ -2029,7 +2029,7 @@ void Waypoint::InitPathMatrix(void)
 	if (!m_distMatrix.IsAllocated())
 		return;
 
-	if (LoadPathMatrix())
+	if (!forceRebuild && LoadPathMatrix())
 		return; // matrix loaded from the file
 
 	ServerPrint("PLEASE WAIT UNTIL DISTANCE MATRIX CALCULATION FINISHES!");
@@ -2735,6 +2735,8 @@ bool Waypoint::Load(void)
 
 void Waypoint::Save(void)
 {
+	bool saveSucceeded = false;
+
 	const char* waypointFilePath = CheckSubfolderFile();
 	if (!waypointFilePath)
 	{
@@ -2788,25 +2790,32 @@ void Waypoint::Save(void)
 				Sort(i, path[i].index);
 			}
 
-			if (Compressor::Compress(waypointFilePath, reinterpret_cast<uint8_t*>(&header), sizeof(WaypointHeader), reinterpret_cast<uint8_t*>(&path[0]), g_numWaypoints * sizeof(Path)) == 1)
-			{
-				ServerPrint("Error: Cannot Save Waypoints");
-				CenterPrint("Error: Cannot save waypoints!");
-				AddLogEntry(Log::Error, "Error writing '%s' waypoint file: cannot compress the waypoint file!", GetMapName());
-				fp.Close();
+				if (Compressor::Compress(waypointFilePath, reinterpret_cast<uint8_t*>(&header), sizeof(WaypointHeader), reinterpret_cast<uint8_t*>(&path[0]), g_numWaypoints * sizeof(Path)) == 1)
+				{
+					ServerPrint("Error: Cannot Save Waypoints");
+					CenterPrint("Error: Cannot save waypoints!");
+					AddLogEntry(Log::Error, "Error writing '%s' waypoint file: cannot compress the waypoint file!", GetMapName());
+					fp.Close();
+				}
+				else
+				{
+					ServerPrint("Waypoints Saved");
+					CenterPrint("Waypoints are saved!");
+					fp.Close();
+					saveSucceeded = true;
+				}
 			}
 			else
-			{
-				ServerPrint("Waypoints Saved");
-				CenterPrint("Waypoints are saved!");
-				fp.Close();
-			}
+				AddLogEntry(Log::Memory, "unexpected memory error -> not enough memory (%s free byte required)", sizeof(Path) * g_numWaypoints);
 		}
-		else
-			AddLogEntry(Log::Memory, "unexpected memory error -> not enough memory (%s free byte required)", sizeof(Path) * g_numWaypoints);
-	}
 	else
 		AddLogEntry(Log::Error, "Error writing '%s' waypoint file: file cannot be created!", GetMapName());
+
+	if (saveSucceeded)
+	{
+		m_distMatrix.Destroy();
+		InitPathMatrix(true);
+	}
 }
 
 const char* Waypoint::CheckSubfolderFile(void)

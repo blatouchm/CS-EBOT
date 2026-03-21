@@ -1054,7 +1054,7 @@ public:
   bool Load(void);
   void Save(void);
 
-  void InitPathMatrix(void);
+  void InitPathMatrix(bool forceRebuild = false);
   void SavePathMatrix(void);
   bool LoadPathMatrix(void);
   void StopMatrixCalculation(void);

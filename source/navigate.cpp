@@ -675,7 +675,7 @@ void Bot::DoWaypointNav(void) {
       else
         waypointOrigin.z -= 36.0f;
 
-      if (ebot_debug.GetBool()) {
+      if (ebot_debug_jump.GetBool()) {
         m_debugJumpTarget = waypointOrigin;
         m_debugJumpTargetTime = engine->GetTime() + 3.0f;
       }

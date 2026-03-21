@@ -1518,7 +1518,7 @@ void Bot::DebugModeMsg(void) {
                 InFieldOfView(ladderJumpTarget - EyePosition()) <= 10.0f;
 
             /*
-            jump phases:
+          jump phases (on ladder):
         - LJ_ToSource: bot is not yet at the jump source waypoint and is moving back to it.
         - LJ_AimTarget: bot is at the source area but not yet properly aimed at the target waypoint.
         - LJ_PrepAim1s: bot holds position and aim on the target for 1 second before jumping.

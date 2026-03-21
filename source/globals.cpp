@@ -407,60 +407,34 @@ MenuText g_menus[28] =
 		"\v0. Exit"
 	},
 
+	// removed legacy waypoint menu
 	{
-		0x3ff,
-		"\\ySgdWP Menu\\w\v\v"
-		"1. Add Waypoint\v"
-		"2. Set Waypoint Flag\v"
-		"3. Create Path\v"
-		"4. Set Waypoint Radius\v"
-		"5. Teleport to Waypoint\v"
-		"6. Delete Waypoint\v\v"
-		"7. Auto Put Waypoint Mode\v"
-		"9. Save Waypoint\v"
-		"\v0. Exit"
+		0x0,
+		nullptr,
 	},
 
+	// removed legacy add waypoint menu
 	{
-		0x3ff,
-		"\\ySgdWP Add Waypoint Menu\\w\v\v"
-		"1. Normal\v"
-		"2. Terrorist Important\v"
-		"3. Counter-Terrorist Important\v"
-		"4. Avoid\v"
-		"5. Rescue Zone\v"
-		"6. Map Goal\v"
-		"7. Camp\v"
-		"8. Jump\v"
-		"9. Next\v"
-		"\v0. Exit"
+		0x0,
+		nullptr,
 	},
 
+	// removed legacy add waypoint menu 2
 	{
-		0x3ff,
-		"\\ySgdWP Add Waypoint Menu2\\w\v\v"
-		"1. Use Elevator\v"
-		"2. Sniper Camp\v"
-		"3. Zomibe Mode Hm Camp\v"
-		"\v0. Exit"
+		0x0,
+		nullptr,
 	},
 
+	// removed legacy waypoint team menu
 	{
-		0x3ff,
-		"\\ySgdWP Waypoint Team\\w\v\v"
-		"1. Terrorist\v"
-		"2. Counter-Terrorist\v"
-		"3. All\v"
-		"\v0. Exit"
+		0x0,
+		nullptr,
 	},
 
+	// removed legacy waypoint save menu
 	{
-		0x3ff,
-		"\\ySgdWP Save \\w\v"
-		"Your waypoint have a problem\v"
-		"Are You Sure Save it?\v"
-		"1. Yes, Save\v"
-		"2. No, I will change it"
+		0x0,
+		nullptr,
 	},
 	
 	// set waypoint flag menu
