@@ -499,7 +499,6 @@ int BotCommandHandler_O(edict_t* ent, const char* arg0, const char* arg1, const 
 			else if (g_waypoint->NodesValid())
 			{
 				g_waypoint->Save();
-				g_waypoint->SavePathMatrix();
 			}
 		}
 

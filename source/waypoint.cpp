@@ -2291,13 +2291,14 @@ void CalculateMatrix(void* arg)
 		// write path & distance matrix
 		fp.Write(wpt->m_distMatrix.Get(), sizeof(int16_t), g_numWaypoints * g_numWaypoints);
 
-		// and close the file
-		fp.Close();
+			// and close the file
+			fp.Close();
+			ServerPrint("Distance matrix calculation finished. New matrix has been saved.");
 
-		g_isMatrixCalculating = false;
-		calcMutex.unlock();
+			g_isMatrixCalculating = false;
+			calcMutex.unlock();
+		}
 	}
-}
 
 void Waypoint::SavePathMatrix(void)
 {
