@@ -54,7 +54,7 @@ static float GetAnalyzeJumpHeight(edict_t* entity)
 {
 	float jumpHeight = ebot_analyze_max_jump_height.GetFloat();
 	if (!FNullEnt(entity) && entity->v.gravity > 0.0f)
-		jumpHeight *= entity->v.gravity;
+		jumpHeight /= entity->v.gravity;
 
 	Bot* bot = g_botManager->GetBot(entity);
 	if (bot)

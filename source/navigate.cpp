@@ -55,7 +55,33 @@ static inline float GetBaseJumpHeightForBot(const Bot* bot) {
     return 0.0f;
 
   const float gravity = bot->pev->gravity > 0.0f ? bot->pev->gravity : 1.0f;
-  return ebot_analyze_max_jump_height.GetFloat() * gravity;
+  return ebot_analyze_max_jump_height.GetFloat() / gravity;
+}
+
+static inline float GetMaxJumpHeightForBot(const Bot* bot) {
+  const float baseJumpHeight = GetBaseJumpHeightForBot(bot);
+  if (baseJumpHeight <= 0.0f)
+    return 0.0f;
+
+  if (IsDoubleJumpEnabledForBot(bot))
+    return baseJumpHeight * 2.0f;
+
+  return baseJumpHeight;
+}
+
+static inline bool IsJumpLinkReachableForBot(const Vector& src, const Vector& dest,
+                                             const uint16_t connectionFlags,
+                                             const float maxJumpHeight) {
+  if (!(connectionFlags & PATHFLAG_JUMP))
+    return true;
+
+  if (dest.z <= src.z)
+    return true;
+
+  if (maxJumpHeight <= 0.0f)
+    return false;
+
+  return dest.z <= (src.z + maxJumpHeight);
 }
 
 static inline bool ShouldUseDoubleJumpForGoal(const Bot* bot, const Vector& goal) {
@@ -1969,6 +1995,7 @@ void Bot::FindPath(int16_t &srcIndex, int16_t &destIndex) {
   int seed = m_index + m_numSpawns + m_currentWeapon;
   float min = ebot_pathfinder_seed_min.GetFloat();
   float max = ebot_pathfinder_seed_max.GetFloat();
+  const float maxJumpHeight = GetMaxJumpHeightForBot(this);
 
   int16_t i;
   Path currPath;
@@ -2046,11 +2073,16 @@ void Bot::FindPath(int16_t &srcIndex, int16_t &destIndex) {
       if (!IsValidWaypoint(self))
         break;
 
-      flags = gP->m_paths[self].flags;
+      const Path &selfPath = gP->m_paths[self];
+      if (!IsJumpLinkReachableForBot(currPath.origin, selfPath.origin,
+                                     currPath.connectionFlags[i], maxJumpHeight))
+        continue;
+
+      flags = selfPath.flags;
       if (flags) {
         if (flags & WAYPOINT_FALLCHECK) {
           TraceResult tr;
-          const Vector origin = gP->m_paths[self].origin;
+          const Vector origin = selfPath.origin;
           TraceLine(origin, origin - Vector(0.0f, 0.0f, 60.0f),
                     TraceIgnore::Nothing, m_myself, &tr);
           if (tr.flFraction >= 1.0f)
@@ -2058,7 +2090,7 @@ void Bot::FindPath(int16_t &srcIndex, int16_t &destIndex) {
         }
 
         if (flags & WAYPOINT_SPECIFICGRAVITY) {
-          if ((pev->gravity * engine->GetGravity()) > gP->m_paths[self].gravity)
+          if ((pev->gravity * engine->GetGravity()) > selfPath.gravity)
             continue;
         }
 
@@ -2166,6 +2198,7 @@ void Bot::FindShortestPath(int16_t &srcIndex, int16_t &destIndex) {
   Waypoint *gP = g_waypoint;
   if (!gP)
     return;
+  const float maxJumpHeight = GetMaxJumpHeightForBot(this);
 
   int16_t i;
   for (i = 0; i < g_numWaypoints; i++) {
@@ -2236,11 +2269,16 @@ void Bot::FindShortestPath(int16_t &srcIndex, int16_t &destIndex) {
       if (!IsValidWaypoint(self))
         break;
 
-      flags = gP->m_paths[self].flags;
+      const Path &selfPath = gP->m_paths[self];
+      if (!IsJumpLinkReachableForBot(currPath.origin, selfPath.origin,
+                                     currPath.connectionFlags[i], maxJumpHeight))
+        continue;
+
+      flags = selfPath.flags;
       if (flags) {
         if (flags & WAYPOINT_FALLCHECK) {
           TraceResult tr;
-          const Vector origin = gP->m_paths[self].origin;
+          const Vector origin = selfPath.origin;
           TraceLine(origin, origin - Vector(0.0f, 0.0f, 60.0f),
                     TraceIgnore::Nothing, m_myself, &tr);
           if (tr.flFraction >= 1.0f)
@@ -2248,7 +2286,7 @@ void Bot::FindShortestPath(int16_t &srcIndex, int16_t &destIndex) {
         }
 
         if (flags & WAYPOINT_SPECIFICGRAVITY) {
-          if ((pev->gravity * engine->GetGravity()) > gP->m_paths[self].gravity)
+          if ((pev->gravity * engine->GetGravity()) > selfPath.gravity)
             continue;
         }
 
@@ -2329,6 +2367,7 @@ void Bot::FindEscapePath(int16_t &srcIndex, const Vector &dangerOrigin) {
   AStar *currWaypoint, *childWaypoint;
   Path currPath;
   uint32_t flags;
+  const float maxJumpHeight = GetMaxJumpHeightForBot(this);
 
   AStar &srcWaypoint = waypoints[srcIndex];
   const Vector &srcPos = gP->m_paths[srcIndex].origin;
@@ -2362,15 +2401,20 @@ void Bot::FindEscapePath(int16_t &srcIndex, const Vector &dangerOrigin) {
       if (!IsValidWaypoint(neighborIndex))
         break;
 
+      const Path &neighborPath = gP->m_paths[neighborIndex];
+      if (!IsJumpLinkReachableForBot(currPath.origin, neighborPath.origin,
+                                     currPath.connectionFlags[i], maxJumpHeight))
+        continue;
+
       childWaypoint = &waypoints[neighborIndex];
       if (childWaypoint->is_closed)
         continue;
 
-      flags = gP->m_paths[neighborIndex].flags;
+      flags = neighborPath.flags;
       if (flags) {
         if (flags & WAYPOINT_FALLCHECK) {
           TraceResult tr;
-          const Vector origin = gP->m_paths[neighborIndex].origin;
+          const Vector origin = neighborPath.origin;
           TraceLine(origin, origin - Vector(0.0f, 0.0f, 60.0f),
                     TraceIgnore::Nothing, m_myself, &tr);
           if (tr.flFraction >= 1.0f)
@@ -2378,8 +2422,7 @@ void Bot::FindEscapePath(int16_t &srcIndex, const Vector &dangerOrigin) {
         }
 
         if (flags & WAYPOINT_SPECIFICGRAVITY) {
-          if ((pev->gravity * engine->GetGravity()) >
-              gP->m_paths[neighborIndex].gravity)
+          if ((pev->gravity * engine->GetGravity()) > neighborPath.gravity)
             continue;
         }
 
@@ -2403,7 +2446,7 @@ void Bot::FindEscapePath(int16_t &srcIndex, const Vector &dangerOrigin) {
         }
       }
 
-      const Vector &neighborPos = gP->m_paths[neighborIndex].origin;
+      const Vector &neighborPos = neighborPath.origin;
       float dangerDist = (neighborPos - dangerOrigin).GetLengthSquared();
       float dangerPenalty = 0.0f;
       constexpr float safeDist = 512.0f * 512.0f;
