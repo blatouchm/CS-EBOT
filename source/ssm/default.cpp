@@ -190,16 +190,30 @@ void Bot::DefaultUpdate(void)
 				MoveOut(m_enemyOrigin);
 				m_navNode.Stop();
 			}
-			else
-			{
-				// if our enemy is closer to this waypoint, just skip it otherwise we will get infected
-				if ((g_waypoint->GetPath(m_navNode.First())->origin - m_enemyOrigin).GetLengthSquared() < (g_waypoint->GetPath(m_navNode.First())->origin - pev->origin).GetLengthSquared())
-					m_navNode.Shift();
-
-				if (!m_navNode.IsEmpty())
-					FollowPath();
 				else
-					m_navNode.Stop();
+				{
+					// if our enemy is closer to this waypoint, just skip it otherwise we will get infected
+					const int16_t firstIndex = m_navNode.First();
+					const int16_t secondIndex = m_navNode.Next();
+					if (IsValidWaypoint(firstIndex) && IsValidWaypoint(secondIndex))
+					{
+						const Path* const firstPath = g_waypoint->GetPath(firstIndex);
+						const Path* const secondPath = g_waypoint->GetPath(secondIndex);
+						const bool plainFirst = firstPath && firstPath->flags == 0;
+						const bool plainSecond = secondPath && secondPath->flags == 0;
+						const bool secondVisible = secondPath && IsVisible(secondPath->origin, m_myself);
+						const bool enemyCloserToFirst = firstPath &&
+							(firstPath->origin - m_enemyOrigin).GetLengthSquared() <
+							(firstPath->origin - pev->origin).GetLengthSquared();
+
+						if (plainFirst && plainSecond && secondVisible && enemyCloserToFirst)
+							m_navNode.Shift();
+					}
+
+					if (!m_navNode.IsEmpty())
+						FollowPath();
+					else
+						m_navNode.Stop();
 			}
 
 			return;
@@ -217,7 +231,7 @@ void Bot::DefaultUpdate(void)
 						m_navNode.Clear();
 						MoveTo(m_nearestFriend->v.origin);
 						return;
-					}
+                    }
 				}
 
 				FollowPath();

@@ -11,6 +11,15 @@ void Bot::PauseStart(void)
 	m_waitForLanding = false;
 	m_doubleJumpPending = false;
 	m_doubleJumpTime = 0.0f;
+	m_ladderJumpPrepTime = 0.0f;
+	m_ladderJumpRetryDeadline = 0.0f;
+	m_ladderJumpRetrySource = -1;
+	m_ladderJumpRetryTarget = -1;
+	m_ladderJumpInitialPressUsed = false;
+	m_ladderGroundStartTime = 0.0f;
+	m_jumpLookTargetActive = false;
+	m_jumpLookTarget = -1;
+	m_jumpLookDeadline = 0.0f;
 	IgnoreCollisionShortly();
 }
 

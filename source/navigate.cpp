@@ -34,10 +34,12 @@ ConVar ebot_pathfinder_seed_min("ebot_pathfinder_seed_min", "0.9");
 ConVar ebot_pathfinder_seed_max("ebot_pathfinder_seed_max", "1.1");
 ConVar ebot_helicopter_width("ebot_helicopter_width", "54.0");
 ConVar ebot_use_pathfinding_for_avoid("ebot_use_pathfinding_for_avoid", "1");
+ConVar ebot_leap_zombies("ebot_leap_zombies", "0");
 
 extern ConVar ebot_analyze_max_jump_height;
 extern ConVar ebot_human_double_jump;
 extern ConVar ebot_zombie_double_jump;
+extern ConVar ebot_debug;
 
 static inline bool IsDoubleJumpEnabledForBot(const Bot* bot) {
   if (!bot)
@@ -204,6 +206,14 @@ int16_t Bot::FindGoalHuman(void) {
   if (!IsValidWaypoint(m_currentWaypointIndex))
     FindWaypoint();
 
+  if (!IsValidWaypoint(m_currentWaypointIndex)) {
+    if (g_numWaypoints > 0)
+      m_currentGoalIndex = static_cast<int16_t>(crandomint(0, g_numWaypoints - 1));
+    else
+      m_currentGoalIndex = -1;
+    return m_currentGoalIndex;
+  }
+
   if (m_skipHumanCampThisRound) {
     int16_t candidate = -1;
     for (int attempt = 0; attempt < 64; attempt++) {
@@ -342,11 +352,319 @@ void Bot::FollowPath(void) { m_navNode.Start(); }
 // this function is a main path navigation
 void Bot::DoWaypointNav(void) {
   m_destOrigin = m_waypointOrigin;
-  if (ProcessDoubleJump(this))
+
+  // Guard against invalid current waypoint index before any direct
+  // g_waypoint->m_paths[m_currentWaypointIndex] access below.
+  if (!IsValidWaypoint(m_currentWaypointIndex)) {
+    FindWaypoint();
+
+    if (!IsValidWaypoint(m_currentWaypointIndex) &&
+        IsValidWaypoint(m_navNode.First()))
+      ChangeWptIndex(m_navNode.First());
+
+    if (!IsValidWaypoint(m_currentWaypointIndex)) {
+      m_navNode.Clear();
+      m_moveSpeed = 0.0f;
+      m_strafeSpeed = 0.0f;
+      m_buttons &=
+          ~(IN_FORWARD | IN_BACK | IN_MOVELEFT | IN_MOVERIGHT | IN_JUMP);
+      return;
+    }
+    m_destOrigin = m_waypointOrigin;
+  }
+
+  bool ladderJumpLink = false;
+  int16_t ladderJumpTargetIndex = -1;
+  Vector ladderJumpTarget = m_destOrigin;
+  Vector ladderJumpAimTarget = m_destOrigin;
+  if (IsOnLadder() && m_navNode.HasNext()) {
+    const int16_t nextIndex = m_navNode.Next();
+    for (int16_t i = 0; i < pMax; i++) {
+      if (m_waypoint.index[i] == nextIndex) {
+        ladderJumpLink = (m_waypoint.connectionFlags[i] & PATHFLAG_JUMP) != 0;
+        ladderJumpTargetIndex = nextIndex;
+        const Path *nextPath = g_waypoint->GetPath(nextIndex);
+        if (nextPath)
+          ladderJumpTarget = nextPath->origin;
+        break;
+      }
+    }
+  }
+  if (ladderJumpLink)
+    ladderJumpAimTarget = ladderJumpTarget;
+
+  const bool ladderJumpVisible =
+      IsOnLadder() && ladderJumpLink && IsInViewCone(ladderJumpAimTarget);
+  const bool ladderJumpAimReady =
+      ladderJumpVisible &&
+      InFieldOfView(ladderJumpAimTarget - EyePosition()) <= 10.0f;
+  const float currentTime = engine->GetTime();
+  const bool debugJump = ebot_debug.GetBool();
+  auto getGroundJumpLookIndex = [&]() -> int16_t {
+    int16_t jumpLookIndex = m_navNode.HasNext() ? m_navNode.Next() : -1;
+    if (!IsValidWaypoint(jumpLookIndex) && IsValidWaypoint(m_currentWaypointIndex))
+      jumpLookIndex = m_currentWaypointIndex;
+    if (!IsValidWaypoint(jumpLookIndex) && IsValidWaypoint(m_navNode.First()))
+      jumpLookIndex = m_navNode.First();
+    return jumpLookIndex;
+  };
+
+  if (m_jumpLookTargetActive && m_jumpLookDeadline > 0.0f &&
+      currentTime >= m_jumpLookDeadline) {
+    m_jumpLookTargetActive = false;
+    m_jumpLookTarget = -1;
+    m_jumpLookDeadline = 0.0f;
+  }
+
+  const bool currentIsLadderWaypoint =
+      IsValidWaypoint(m_currentWaypointIndex) && (m_waypoint.flags & WAYPOINT_LADDER);
+  // Keep timeout active even if bot keeps hopping under the ladder.
+  if (currentIsLadderWaypoint && !IsOnLadder()) {
+    if (m_ladderGroundStartTime <= 0.0f)
+      m_ladderGroundStartTime = currentTime;
+    else if (currentTime - m_ladderGroundStartTime >= 2.0f) {
+      m_ladderGroundStartTime = 0.0f;
+      m_ladderJumpPrepTime = 0.0f;
+      m_ladderJumpRetryDeadline = 0.0f;
+      m_ladderJumpRetrySource = -1;
+      m_ladderJumpRetryTarget = -1;
+      m_ladderJumpInitialPressUsed = false;
+      m_waitForLanding = false;
+      m_navNode.Clear();
+      ChangeWptIndex(-1);
+      FindWaypoint();
+      return;
+    }
+  } else
+    m_ladderGroundStartTime = 0.0f;
+
+  auto resetLadderJumpRetry = [&]() {
+    const int16_t retrySource = m_ladderJumpRetrySource;
+    const int16_t retryTarget = m_ladderJumpRetryTarget;
+    m_ladderJumpPrepTime = 0.0f;
+    m_ladderJumpRetryDeadline = 0.0f;
+    m_ladderJumpRetrySource = -1;
+    m_ladderJumpRetryTarget = -1;
+    m_ladderJumpInitialPressUsed = false;
+    m_waitForLanding = false;
+    m_jumpReady = false;
+    m_doubleJumpPending = false;
+    m_doubleJumpTime = 0.0f;
+    m_buttons &= ~(IN_JUMP | IN_FORWARD | IN_BACK | IN_MOVELEFT | IN_MOVERIGHT);
+    m_moveSpeed = 0.0f;
+    m_strafeSpeed = 0.0f;
+
+    m_navNode.Start();
+    if (m_navNode.CanFollowPath() && IsValidWaypoint(retrySource)) {
+      m_navNode.Set(0, retrySource);
+      if (IsValidWaypoint(retryTarget))
+        m_navNode.Set(1, retryTarget);
+    }
+
+    if (IsValidWaypoint(retrySource))
+      ChangeWptIndex(retrySource);
+    else if (m_navNode.CanFollowPath() && IsValidWaypoint(m_navNode.First()))
+      ChangeWptIndex(m_navNode.First());
+  };
+
+  if (IsValidWaypoint(m_ladderJumpRetryTarget) &&
+      m_ladderJumpRetryDeadline > 0.0f) {
+    const Path *retryTargetPath = g_waypoint->GetPath(m_ladderJumpRetryTarget);
+    if (!retryTargetPath) {
+      if (debugJump) {
+        ServerPrint("%s ladder jump lock end: target waypoint became invalid (src %d, dst %d)",
+                    GetEntityName(m_myself), m_ladderJumpRetrySource,
+                    m_ladderJumpRetryTarget);
+      }
+      m_ladderJumpPrepTime = 0.0f;
+      m_ladderJumpRetryDeadline = 0.0f;
+      m_ladderJumpRetrySource = -1;
+      m_ladderJumpRetryTarget = -1;
+      m_ladderJumpInitialPressUsed = false;
+      m_waitForLanding = false;
+    } else {
+      const float distToRetryTargetSq =
+          (pev->origin - retryTargetPath->origin).GetLengthSquared();
+      const float distToRetryTarget = csqrtf(distToRetryTargetSq);
+      const bool reachedRetryTargetByDistance =
+          distToRetryTargetSq <= squaredf(40.0f);
+      bool fartherFromSourceThanTarget = true;
+      if (const Path *const retrySourcePath =
+              g_waypoint->GetPath(m_ladderJumpRetrySource)) {
+        const float distToRetrySourceSq =
+            (pev->origin - retrySourcePath->origin).GetLengthSquared();
+        fartherFromSourceThanTarget = distToRetrySourceSq > distToRetryTargetSq;
+      }
+      const bool targetIsLadder = (retryTargetPath->flags & WAYPOINT_LADDER) != 0;
+      const bool stableAfterJump =
+          targetIsLadder ? IsOnLadder() : (IsOnFloor() || IsInWater());
+
+      if (reachedRetryTargetByDistance && fartherFromSourceThanTarget &&
+          stableAfterJump) {
+        const int16_t reachedTargetIndex = m_ladderJumpRetryTarget;
+        if (debugJump) {
+          ServerPrint("%s ladder jump lock end: reached target (dist %.1f)",
+                      GetEntityName(m_myself), distToRetryTarget);
+        }
+        m_ladderJumpPrepTime = 0.0f;
+        m_ladderJumpRetryDeadline = 0.0f;
+        m_ladderJumpRetrySource = -1;
+        m_ladderJumpRetryTarget = -1;
+        m_ladderJumpInitialPressUsed = false;
+        m_waitForLanding = false;
+        if (IsValidWaypoint(reachedTargetIndex))
+          ChangeWptIndex(reachedTargetIndex);
+      } else if (IsOnFloor() || IsInWater()) {
+        // Abort ladder jump process after landing.
+        if (debugJump) {
+          ServerPrint("%s ladder jump lock end: landed before target (dist %.1f)",
+                      GetEntityName(m_myself), distToRetryTarget);
+        }
+        m_ladderJumpPrepTime = 0.0f;
+        m_ladderJumpRetryDeadline = 0.0f;
+        m_ladderJumpRetrySource = -1;
+        m_ladderJumpRetryTarget = -1;
+        m_ladderJumpInitialPressUsed = false;
+        m_waitForLanding = false;
+      } else if (currentTime >= m_ladderJumpRetryDeadline) {
+        if (debugJump) {
+          ServerPrint("%s ladder jump lock end: timeout (dist %.1f)",
+                      GetEntityName(m_myself), distToRetryTarget);
+        }
+        resetLadderJumpRetry();
+        return;
+      } else {
+        // While ladder jump is in flight, keep view/buttons locked.
+        m_waitForLanding = true;
+        m_updateLooking = true;
+        m_lookVelocity = nullvec;
+        m_lookAt = retryTargetPath->origin;
+        m_buttons &= ~(IN_BACK | IN_MOVELEFT | IN_MOVERIGHT | IN_DUCK);
+        m_buttons |= IN_FORWARD;
+        if (!m_ladderJumpInitialPressUsed) {
+          m_buttons |= IN_JUMP;
+          m_ladderJumpInitialPressUsed = true;
+        } else
+          m_buttons &= ~IN_JUMP;
+        return;
+      }
+    }
+  } else {
+    m_ladderJumpRetryDeadline = 0.0f;
+    m_ladderJumpRetrySource = -1;
+    m_ladderJumpRetryTarget = -1;
+    m_ladderJumpInitialPressUsed = false;
+  }
+
+  const bool ladderJumpWindow =
+      IsOnLadder() && ladderJumpLink &&
+      (pev->origin - m_waypoint.origin).GetLengthSquared() < squaredf(72.0f);
+
+  if (IsOnLadder()) {
+    // Keep ladder movement deterministic; allow jump only on explicit jump links.
+    m_doubleJumpPending = false;
+    m_doubleJumpTime = 0.0f;
+    m_jumpReady = false;
+
+    if (ladderJumpLink) {
+      // If we are not yet at jump source point, return to it first.
+      if (!ladderJumpWindow && !m_waitForLanding) {
+        m_ladderJumpPrepTime = 0.0f;
+        m_buttons &= ~IN_JUMP;
+        m_updateLooking = true;
+        m_lookVelocity = nullvec;
+        m_lookAt = m_waypoint.origin;
+      } else {
+      // Keep looking at jump target so the view-cone condition can become true.
+      m_updateLooking = true;
+      m_lookVelocity = nullvec;
+      m_lookAt = ladderJumpAimTarget;
+
+      if (!ladderJumpAimReady) {
+        m_ladderJumpPrepTime = 0.0f;
+        m_waitForLanding = false;
+        m_buttons &= ~IN_JUMP;
+      } else if (ladderJumpWindow && !m_waitForLanding) {
+        if (m_ladderJumpPrepTime <= 0.0f)
+          m_ladderJumpPrepTime = currentTime + 0.5f;
+
+        // Before ladder jump, stop and lock aim for 0.5 second.
+        if (currentTime < m_ladderJumpPrepTime) {
+          m_moveSpeed = 0.0f;
+          m_strafeSpeed = 0.0f;
+          m_buttons &=
+              ~(IN_FORWARD | IN_BACK | IN_MOVELEFT | IN_MOVERIGHT | IN_JUMP);
+        } else {
+          const int16_t jumpSourceIndex = m_currentWaypointIndex;
+
+          m_duckTime = engine->GetTime() + 1.25f;
+          m_buttons |= (IN_FORWARD | IN_JUMP);
+
+
+          if (debugJump) {
+            ServerPrint("%s ladder jump: %d -> %d vel(%.1f %.1f %.1f)",
+                        GetEntityName(m_myself), m_currentWaypointIndex,
+                        ladderJumpTargetIndex, pev->velocity.x, pev->velocity.y,
+                        pev->velocity.z);
+          }
+
+          m_waitForLanding = true;
+          m_ladderJumpRetryDeadline = currentTime + 2.0f;
+          m_ladderJumpRetrySource = jumpSourceIndex;
+          m_ladderJumpRetryTarget = ladderJumpTargetIndex;
+          m_ladderJumpInitialPressUsed = false;
+          m_ladderJumpPrepTime = 0.0f;
+        }
+      } else if (!m_waitForLanding) {
+        m_ladderJumpPrepTime = 0.0f;
+      }
+
+      if (!m_waitForLanding && m_ladderJumpPrepTime > currentTime)
+      {
+        m_buttons &= ~IN_JUMP;
+      }
+      else if (ladderJumpVisible && ladderJumpWindow)
+      {
+        m_duckTime = engine->GetTime() + 1.25f;
+        m_buttons |= (IN_FORWARD | IN_JUMP);
+      }
+      else
+        m_buttons &= ~IN_JUMP;
+      }
+    } else {
+      m_ladderJumpPrepTime = 0.0f;
+      m_waitForLanding = false;
+      m_buttons &= ~IN_JUMP;
+    }
+  }
+
+  if (!IsOnLadder() && (m_currentTravelFlags & PATHFLAG_JUMP) &&
+      IsValidWaypoint(m_currentWaypointIndex)) {
+    // Keep aim locked on jump destination for every non-ladder jump link.
+    m_updateLooking = true;
+    m_lookVelocity = nullvec;
+    const int16_t jumpLookIndex = getGroundJumpLookIndex();
+    if (IsValidWaypoint(jumpLookIndex)) {
+      if (const Path *const jumpLookPath = g_waypoint->GetPath(jumpLookIndex))
+        m_lookAt = jumpLookPath->origin;
+      else
+        m_lookAt = m_waypoint.origin;
+    } else
+      m_lookAt = m_waypoint.origin;
+  }
+
+  if (!IsOnLadder() && ProcessDoubleJump(this))
     m_buttons |= IN_JUMP;
 
   if (m_jumpReady && !m_waitForLanding) {
-    if (IsOnFloor() || IsOnLadder()) {
+    if (IsOnLadder()) {
+      m_buttons &= ~IN_JUMP;
+      m_jumpReady = false;
+      m_waitForLanding = false;
+      return;
+    }
+
+    if (IsOnFloor()) {
       const Vector myOrigin = GetBottomOrigin(m_myself);
       Vector waypointOrigin =
           m_waypoint.origin; // directly jump to waypoint, ignore risk of fall
@@ -356,28 +674,134 @@ void Bot::DoWaypointNav(void) {
       else
         waypointOrigin.z -= 36.0f;
 
+      if (ebot_debug.GetBool()) {
+        m_debugJumpTarget = waypointOrigin;
+        m_debugJumpTargetTime = engine->GetTime() + 3.0f;
+      }
+
+      Vector sourceWaypointOrigin = myOrigin;
+      if (IsValidWaypoint(m_prevWptIndex[1])) {
+        if (const Path *const sourceWaypoint = g_waypoint->GetPath(m_prevWptIndex[1]))
+          sourceWaypointOrigin = sourceWaypoint->origin;
+      }
+
+      const float sourceWaypointZ = cminf(sourceWaypointOrigin.z, myOrigin.z);
+      const bool jumpingToHigherWaypoint = (m_waypoint.origin.z - sourceWaypointZ) > 1.0f;
+      const bool shortUpwardJump =
+          jumpingToHigherWaypoint &&
+          (m_waypoint.origin - sourceWaypointOrigin).GetLengthSquared() <
+              squaredf(50.0f);
+
       Vector velocity = CheckThrow(myOrigin, waypointOrigin);
       if (velocity.GetLengthSquared() < squaredf(100.0f))
         velocity = CheckToss(myOrigin, waypointOrigin);
       velocity = velocity + velocity * 0.45f;
 
-      // set the bot "grenade" velocity
-      if (velocity.GetLengthSquared() > 10.0f) {
-        pev->velocity.x = velocity.x;
-        pev->velocity.y = velocity.y;
+      // Keep jump arc closer to player-like height across custom gravity values.
+      float gravityFactor = pev->gravity;
+      if (Math::FltZero(gravityFactor) || gravityFactor < 0.0f)
+          gravityFactor = 1.0f;
 
-        // cheat
-        if (!Math::FltZero(pev->gravity))
-          pev->velocity.z = velocity.z * pev->gravity;
-      } else {
-        pev->velocity.x = (waypointOrigin.x - myOrigin.x) *
-                          (1.0f + (pev->maxspeed / 500.0f) + pev->gravity);
-        pev->velocity.y = (waypointOrigin.y - myOrigin.y) *
-                          (1.0f + (pev->maxspeed / 500.0f) + pev->gravity);
+      const float gravityScale = csqrtf(gravityFactor);
+
+      //There are three types of jumps from the ground: 
+      // a calculated long jump (boosted velocity) 
+      // a short vertical jump (without xy, with IN_DUCK + IN_FORWARD)
+      // other jumps (if vertical -> IN_DUCK + IN_FORWARD)
+
+      // set the bot "grenade" velocity - a calculated long jump (boosted velocity) 
+      if (velocity.GetLengthSquared() > 10.0f && !shortUpwardJump) {
+
+        const bool longUpwardJump =
+              jumpingToHigherWaypoint &&
+              (m_waypoint.origin - sourceWaypointOrigin).GetLengthSquared() >
+              squaredf(100.0f);
+
+        const float jumpVelocityXYBoost = 1.0f;
+        float jumpVelocityZBoost = 1.2f;
+
+        pev->velocity.x = velocity.x * jumpVelocityXYBoost;
+        pev->velocity.y = velocity.y * jumpVelocityXYBoost;
+
+        //needed for long jump to higher ladder etc.
+        if(longUpwardJump)
+            jumpVelocityZBoost = 1.5f;
+
+        float jumpVelocityZ = velocity.z * gravityScale * 1.15f * jumpVelocityZBoost;
+        const float minJumpVelocityZ = 260.0f * gravityScale * jumpVelocityZBoost;
+        if (jumpVelocityZ < minJumpVelocityZ)
+          jumpVelocityZ = minJumpVelocityZ;
+
+        pev->velocity.z = jumpVelocityZ;
+
+        if (debugJump) {
+            ServerPrint("%s ground jump - long: %d -> %d vel(%.1f %.1f %.1f)",
+                GetEntityName(m_myself), m_currentWaypointIndex,
+                ladderJumpTargetIndex, pev->velocity.x, pev->velocity.y,
+                pev->velocity.z);
+        }
+
+      } else {  //short vertical jump (without xy, with IN_DUCK + IN_FORWARD)
+        if (shortUpwardJump) {
+
+          pev->velocity.x = 0.0f;
+          pev->velocity.y = 0.0f;
+          pev->velocity.z = 260.0f * gravityScale;
+
+          if (debugJump) {
+              ServerPrint("%s ground jump - shortUpward: %d -> %d vel(%.1f %.1f %.1f)",
+                  GetEntityName(m_myself), m_currentWaypointIndex,
+                  ladderJumpTargetIndex, pev->velocity.x, pev->velocity.y,
+                  pev->velocity.z);
+          }
+
+        } else { //other jumps 
+
+          pev->velocity.x = (waypointOrigin.x - myOrigin.x) *
+                            (1.0f + (pev->maxspeed / 500.0f) + pev->gravity);
+          pev->velocity.y = (waypointOrigin.y - myOrigin.y) *
+                            (1.0f + (pev->maxspeed / 500.0f) + pev->gravity);
+
+          pev->velocity.z = 260.0f * gravityScale;
+
+          if (debugJump) {
+              ServerPrint("%s ground jump - other: %d -> %d vel(%.1f %.1f %.1f)",
+                  GetEntityName(m_myself), m_currentWaypointIndex,
+                  ladderJumpTargetIndex, pev->velocity.x, pev->velocity.y,
+                  pev->velocity.z);
+          }
+
+        }
       }
 
-      m_duckTime = engine->GetTime() + 1.25f;
-      m_buttons |= (IN_DUCK | IN_JUMP);
+      const float jumpStartTime = engine->GetTime();
+      if (jumpingToHigherWaypoint) {
+        m_jumpDuckStartTime = jumpStartTime + 0.1f;
+        m_jumpDuckEndTime = jumpStartTime + 1.25f;
+      } else {
+        m_jumpDuckStartTime = 0.0f;
+        m_jumpDuckEndTime = 0.0f;
+      }
+
+      m_jumpLookTarget = getGroundJumpLookIndex();
+      m_jumpLookTargetActive = IsValidWaypoint(m_jumpLookTarget);
+      m_jumpLookDeadline = m_jumpLookTargetActive ? (jumpStartTime + 3.0f) : 0.0f;
+
+      const bool zombieLeap = m_isZombieBot && ebot_leap_zombies.GetBool();
+      const bool crouchTarget = (m_waypoint.flags & WAYPOINT_CROUCH) != 0;
+
+      if (zombieLeap) {
+        m_duckTime = engine->GetTime() + 1.25f;
+        m_buttons |= (IN_DUCK | IN_JUMP);
+      } else {
+        m_buttons &= ~IN_JUMP;
+        if (crouchTarget) {
+          m_duckTime = engine->GetTime() + 1.25f;
+          m_buttons |= IN_DUCK;
+        } else
+          m_buttons &= ~IN_DUCK;
+      }
+
       TryStartDoubleJump(this, m_waypoint.origin);
       m_jumpReady = false;
       m_waitForLanding = true;
@@ -392,25 +816,76 @@ void Bot::DoWaypointNav(void) {
       m_jumpReady = false;
       m_doubleJumpPending = false;
       m_doubleJumpTime = 0.0f;
+      m_jumpLookTargetActive = false;
+      m_jumpLookTarget = -1;
+      m_jumpLookDeadline = 0.0f;
     };
 
     if (IsOnLadder()) {
+      if (ladderJumpLink) {
+        // Keep the jump held while still attached to ladder during
+        // ladder-to-ladder transitions.
+        if (ladderJumpVisible) {
+          m_buttons |= (IN_DUCK | IN_JUMP);
+        }
+        else
+          m_buttons &= ~IN_JUMP;
+        return;
+      }
+
       clearLandingWait();
+      m_buttons &= ~IN_JUMP;
       return;
     }
 
-    if (IsOnFloor() || IsInWater()) {
+    const bool landed = (IsOnFloor() || IsInWater()) && pev->velocity.z <= 5.0f;
+    if (landed) {
       if (!SetProcess(Process::Pause, "waiting a bit for next jump", true,
                       engine->GetTime() + crandomfloat(0.1f, 0.35f)))
         clearLandingWait();
+    } else {
+      // While airborne after jump, keep looking at jump destination.
+      m_updateLooking = true;
+      m_lookVelocity = nullvec;
+      if (m_jumpLookTargetActive) {
+        if (const Path *const jumpLookPath = g_waypoint->GetPath(m_jumpLookTarget))
+          m_lookAt = jumpLookPath->origin;
+        else {
+          m_jumpLookTargetActive = false;
+          m_jumpLookTarget = -1;
+          m_jumpLookDeadline = 0.0f;
+        }
+      }
+
+      if (!m_jumpLookTargetActive && IsValidWaypoint(m_currentWaypointIndex))
+        m_lookAt = m_waypoint.origin;
+      else if (!m_jumpLookTargetActive)
+        m_lookAt = m_destOrigin;
+
+      // Forward lock should follow the same delayed window as airborne duck.
+      if (m_jumpDuckEndTime > currentTime &&
+          currentTime >= m_jumpDuckStartTime) {
+        m_buttons &= ~(IN_BACK | IN_MOVELEFT | IN_MOVERIGHT);
+        m_buttons |= IN_FORWARD;
+      }
     }
 
     return;
   }
 
   if (!IsValidWaypoint(m_currentWaypointIndex) &&
-      IsValidWaypoint(m_navNode.First()))
-    ChangeWptIndex(m_navNode.First());
+      IsValidWaypoint(m_navNode.First())) {
+    const int16_t firstIndex = m_navNode.First();
+    const Path *const firstPath = g_waypoint->GetPath(firstIndex);
+    bool allowAdopt = true;
+    if (firstPath->flags & WAYPOINT_LADDER) {
+      allowAdopt = (pev->origin - firstPath->origin).GetLengthSquared() <=
+                   squaredf(24.0f);
+    }
+
+    if (allowAdopt)
+      ChangeWptIndex(firstIndex);
+  }
 
   if (m_waypoint.flags & WAYPOINT_FALLCHECK) {
     TraceResult tr;
@@ -653,10 +1128,10 @@ void Bot::DoWaypointNav(void) {
       }
     }
 
-    const float dist = (pev->origin - m_waypointOrigin).GetLengthSquared();
+    const Vector waypointOrigin = m_waypoint.origin;
+    const float dist = (pev->origin - waypointOrigin).GetLengthSquared();
     if (m_waypointOrigin.z >= (pev->origin.z + 16.0f))
-      m_waypointOrigin = g_waypoint->GetPath(m_currentWaypointIndex)->origin +
-                         Vector(0, 0, 16);
+      m_waypointOrigin = waypointOrigin + Vector(0, 0, 16);
     else if (m_waypointOrigin.z < pev->origin.z + 16.0f && !IsOnLadder() &&
              IsOnFloor() && !(pev->flags & FL_DUCKING)) {
       m_moveSpeed = csqrtf(dist);
@@ -711,6 +1186,29 @@ void Bot::DoWaypointNav(void) {
       if ((pev->origin - m_destOrigin).GetLengthSquared2D() <
           squaredf(static_cast<float>(m_waypoint.radius)))
         next = true;
+    }
+  }
+
+  if (next) {
+    // On ladder jump links, keep current node until we're actually near the
+    // jump destination; otherwise current can switch too early.
+    if (m_navNode.HasNext()) {
+      const int16_t nextIndex = m_navNode.Next();
+      for (int16_t i = 0; i < pMax; i++) {
+        if (m_waypoint.index[i] != nextIndex)
+          continue;
+
+        const bool ladderJumpLink =
+            (IsOnLadder() || (m_waypoint.flags & WAYPOINT_LADDER)) &&
+            ((m_waypoint.connectionFlags[i] & PATHFLAG_JUMP) != 0);
+        if (ladderJumpLink) {
+          const Path *const nextPath = g_waypoint->GetPath(nextIndex);
+          if ((pev->origin - nextPath->origin).GetLengthSquared() >
+              squaredf(24.0f))
+            next = false;
+        }
+        break;
+      }
     }
   }
 
@@ -1403,6 +1901,20 @@ void Bot::FindPath(int16_t &srcIndex, int16_t &destIndex) {
   if (!IsValidWaypoint(srcIndex))
     srcIndex = FindWaypoint();
 
+  if (!IsValidWaypoint(srcIndex)) {
+    m_navNode.Clear();
+    return;
+  }
+
+  if (!IsValidWaypoint(destIndex)) {
+    if (g_numWaypoints > 0)
+      destIndex = static_cast<int16_t>(crandomint(0, g_numWaypoints - 1));
+    else {
+      m_navNode.Clear();
+      return;
+    }
+  }
+
   if (ebot_force_shortest_path.GetBool() || g_numWaypoints > 2048) {
     FindShortestPath(srcIndex, destIndex);
     return;
@@ -1504,14 +2016,20 @@ void Bot::FindPath(int16_t &srcIndex, int16_t &destIndex) {
       } while (IsValidWaypoint(currentIndex));
 
       m_navNode.Reverse();
-      if (m_navNode.HasNext() &&
-          (gP->GetPath(m_navNode.Next())->origin - pev->origin)
-                  .GetLengthSquared() < (gP->GetPath(m_navNode.Next())->origin -
-                                         gP->GetPath(m_navNode.First())->origin)
-                                            .GetLengthSquared())
-        m_navNode.Shift();
 
-      ChangeWptIndex(m_navNode.First());
+      const int16_t firstIndex = m_navNode.First();
+      bool adoptFirst = !IsValidWaypoint(m_currentWaypointIndex) ||
+                        m_currentWaypointIndex == firstIndex;
+      if (!adoptFirst && IsValidWaypoint(firstIndex)) {
+        const Path *const firstPath = gP->GetPath(firstIndex);
+        const bool ladderFirst = IsOnLadder() || (firstPath->flags & WAYPOINT_LADDER);
+        const float threshold = ladderFirst ? 24.0f : 2048.0f;
+        adoptFirst = (pev->origin - firstPath->origin).GetLengthSquared() <=
+                     squaredf(threshold);
+      }
+
+      if (adoptFirst)
+        ChangeWptIndex(firstIndex);
       return;
     }
 
@@ -1600,6 +2118,23 @@ void Bot::FindPath(int16_t &srcIndex, int16_t &destIndex) {
 }
 
 void Bot::FindShortestPath(int16_t &srcIndex, int16_t &destIndex) {
+  if (!IsValidWaypoint(srcIndex))
+    srcIndex = FindWaypoint();
+
+  if (!IsValidWaypoint(srcIndex)) {
+    m_navNode.Clear();
+    return;
+  }
+
+  if (!IsValidWaypoint(destIndex)) {
+    if (g_numWaypoints > 0)
+      destIndex = static_cast<int16_t>(crandomint(0, g_numWaypoints - 1));
+    else {
+      m_navNode.Clear();
+      return;
+    }
+  }
+
   if (srcIndex == destIndex)
     return;
 
@@ -1672,14 +2207,20 @@ void Bot::FindShortestPath(int16_t &srcIndex, int16_t &destIndex) {
       } while (IsValidWaypoint(currentIndex));
 
       m_navNode.Reverse();
-      if (m_navNode.HasNext() &&
-          (gP->GetPath(m_navNode.Next())->origin - pev->origin)
-                  .GetLengthSquared() < (gP->GetPath(m_navNode.Next())->origin -
-                                         gP->GetPath(m_navNode.First())->origin)
-                                            .GetLengthSquared())
-        m_navNode.Shift();
 
-      ChangeWptIndex(m_navNode.First());
+      const int16_t firstIndex = m_navNode.First();
+      bool adoptFirst = !IsValidWaypoint(m_currentWaypointIndex) ||
+                        m_currentWaypointIndex == firstIndex;
+      if (!adoptFirst && IsValidWaypoint(firstIndex)) {
+        const Path *const firstPath = gP->GetPath(firstIndex);
+        const bool ladderFirst = IsOnLadder() || (firstPath->flags & WAYPOINT_LADDER);
+        const float threshold = ladderFirst ? 24.0f : 2048.0f;
+        adoptFirst = (pev->origin - firstPath->origin).GetLengthSquared() <=
+                     squaredf(threshold);
+      }
+
+      if (adoptFirst)
+        ChangeWptIndex(firstIndex);
       return;
     }
 
@@ -1914,15 +2455,34 @@ void Bot::FindEscapePath(int16_t &srcIndex, const Vector &dangerOrigin) {
 
     if (m_navNode.Length() > 1) {
       m_navNode.Reverse();
-      if ((gP->GetPath(m_navNode.Next())->origin - pev->origin)
-              .GetLengthSquared() <
-          (gP->GetPath(m_navNode.First())->origin - pev->origin)
-              .GetLengthSquared())
-        m_navNode.Shift();
+      const int16_t firstIndex = m_navNode.First();
+      bool adoptFirst = !IsValidWaypoint(m_currentWaypointIndex) ||
+                        m_currentWaypointIndex == firstIndex;
+      if (!adoptFirst && IsValidWaypoint(firstIndex)) {
+        const Path *const firstPath = gP->GetPath(firstIndex);
+        const bool ladderFirst = IsOnLadder() || (firstPath->flags & WAYPOINT_LADDER);
+        const float threshold = ladderFirst ? 24.0f : 2048.0f;
+        adoptFirst = (pev->origin - firstPath->origin).GetLengthSquared() <=
+                     squaredf(threshold);
+      }
 
-      ChangeWptIndex(m_navNode.First());
-    } else if (!m_navNode.IsEmpty())
-      ChangeWptIndex(m_navNode.First());
+      if (adoptFirst)
+        ChangeWptIndex(firstIndex);
+    } else if (!m_navNode.IsEmpty()) {
+      const int16_t firstIndex = m_navNode.First();
+      bool adoptFirst = !IsValidWaypoint(m_currentWaypointIndex) ||
+                        m_currentWaypointIndex == firstIndex;
+      if (!adoptFirst && IsValidWaypoint(firstIndex)) {
+        const Path *const firstPath = gP->GetPath(firstIndex);
+        const bool ladderFirst = IsOnLadder() || (firstPath->flags & WAYPOINT_LADDER);
+        const float threshold = ladderFirst ? 24.0f : 2048.0f;
+        adoptFirst = (pev->origin - firstPath->origin).GetLengthSquared() <=
+                     squaredf(threshold);
+      }
+
+      if (adoptFirst)
+        ChangeWptIndex(firstIndex);
+    }
   }
 }
 
@@ -2059,17 +2619,56 @@ void Bot::CheckTouchEntity(edict_t *entity) {
 
 int16_t Bot::FindWaypoint(void) {
   if (m_isAlive) {
+    auto isLadderDistanceValid = [&](const int16_t candidate) {
+      if (!IsValidWaypoint(candidate))
+        return false;
+
+      const Path *const path = g_waypoint->GetPath(candidate);
+      const bool hasCurrentWaypoint = IsValidWaypoint(m_currentWaypointIndex);
+
+      // Recovery mode: when we are on a ladder but current waypoint is invalid,
+      // do not constrain acquisition to the tight ladder radius.
+      if (IsOnLadder() && !hasCurrentWaypoint)
+        return true;
+
+      const bool ladderContext =
+          IsOnLadder() || (hasCurrentWaypoint && (m_waypoint.flags & WAYPOINT_LADDER));
+      if (!(path->flags & WAYPOINT_LADDER) && !ladderContext)
+        return true;
+
+      constexpr float LADDER_FIND_THRESHOLD = 24.0f;
+      return (pev->origin - path->origin).GetLengthSquared() <=
+             squaredf(LADDER_FIND_THRESHOLD);
+    };
+
+    auto isReachableCandidate = [&](const int16_t candidate) {
+      if (!IsValidWaypoint(candidate) ||
+          !g_waypoint->Reachable(m_myself, candidate))
+        return false;
+
+      // Avoid snapping to ladder waypoints that are still too far.
+      return isLadderDistanceValid(candidate);
+    };
+
     int16_t index;
     if (!m_isStuck && m_navNode.HasNext() &&
-        g_waypoint->Reachable(m_myself, m_navNode.First()))
+        isReachableCandidate(m_navNode.First()))
       index = m_navNode.First();
-    else if (!m_isStuck &&
-             g_waypoint->Reachable(m_myself, g_clients[m_index].wp))
+    else if (!m_isStuck && isReachableCandidate(g_clients[m_index].wp))
       index = g_clients[m_index].wp;
     else {
       index = g_waypoint->FindNearestToEnt(pev->origin, 2048.0f, m_myself);
-      if (!IsValidWaypoint(index))
+      if (!isLadderDistanceValid(index))
+        index = -1;
+
+      if (!IsValidWaypoint(index)) {
         index = g_waypoint->FindNearest(pev->origin);
+        if (!isLadderDistanceValid(index))
+          index = -1;
+      }
+
+      if (!IsValidWaypoint(index) && IsValidWaypoint(m_currentWaypointIndex))
+        index = m_currentWaypointIndex;
     }
 
     ChangeWptIndex(index);
@@ -2114,10 +2713,12 @@ void Bot::IgnoreCollisionShortly(void) {
 
 bool Bot::CheckWaypoint(void) {
   if (m_isSlowThink) {
+    const bool ladderTraverse = IsOnLadder() || (m_waypoint.flags & WAYPOINT_LADDER);
     if ((m_isStuck && m_stuckTime > 7.0f) ||
-        (pev->origin - m_waypoint.origin).GetLengthSquared() >
-            squaredf(512.0f) ||
-        !g_waypoint->Reachable(m_myself, m_currentWaypointIndex)) {
+        (!ladderTraverse &&
+         ((pev->origin - m_waypoint.origin).GetLengthSquared() >
+              squaredf(512.0f) ||
+          !g_waypoint->Reachable(m_myself, m_currentWaypointIndex)))) {
       FindWaypoint();
       FindPath(m_currentWaypointIndex, m_currentGoalIndex);
       return false;
@@ -2250,8 +2851,8 @@ void Bot::CheckStuck(const Vector &directionNormal, const float finterval) {
           if (m_isStuck && m_navNode.HasNext()) {
             const Bot *bot = g_botManager->GetBot(m_avoid);
             if (bot && bot != this && bot->m_navNode.HasNext()) {
-              if (m_currentWaypointIndex == bot->m_currentWaypointIndex)
-                m_navNode.Shift();
+              if (m_currentWaypointIndex == bot->m_currentWaypointIndex) {
+              }
               /*else // TODO: find better solution
               {
                       m_currentGoalIndex = bot->m_currentGoalIndex;
@@ -2486,6 +3087,9 @@ void Bot::CheckStuck(const Vector &directionNormal, const float finterval) {
           if (pev->maxspeed < 20.0f)
             break;
 
+          if (IsOnLadder())
+            break;
+
           if (m_isZombieBot && pev->flags & FL_DUCKING) {
             m_moveSpeed = pev->maxspeed;
             m_buttons = IN_FORWARD;
@@ -2668,6 +3272,7 @@ void Bot::SetWaypointOrigin(void) {
 }
 
 void Bot::ChangeWptIndex(const int16_t waypointIndex) {
+  const int16_t oldIndex = m_currentWaypointIndex;
   m_currentWaypointIndex = waypointIndex;
   if (!IsValidWaypoint(waypointIndex))
     return;
@@ -2680,6 +3285,15 @@ void Bot::ChangeWptIndex(const int16_t waypointIndex) {
   }
 
   m_waypoint = g_waypoint->m_paths[waypointIndex];
+  if (ebot_debug.GetBool() && oldIndex != waypointIndex &&
+      (m_waypoint.flags & WAYPOINT_LADDER)) {
+    const float distToCurrentWp =
+        (pev->origin - m_waypoint.origin).GetLength();
+    ServerPrint("%s ladder current wp changed: %d -> %d (dist %.1f)",
+                GetEntityName(m_myself), oldIndex, waypointIndex,
+                distToCurrentWp);
+  }
+
   SetWaypointOrigin();
   const float speed = pev->velocity.GetLength();
   if (speed > 10.0f)

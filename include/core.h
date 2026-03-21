@@ -536,7 +536,21 @@ public:
 
   float m_duckTime{0.0f};       // time to duck
   float m_jumpTime{0.0f};       // time last jump happened
+  float m_ladderJumpPrepTime{0.0f}; // hold look at ladder jump target before jump
+  float m_ladderJumpRetryDeadline{0.0f}; // timeout for reaching ladder jump target
+  int16_t m_ladderJumpRetrySource{-1}; // ladder jump source to restart on timeout
+  int16_t m_ladderJumpRetryTarget{-1}; // ladder jump target to validate timeout
+  bool m_ladderJumpInitialPressUsed{false}; // IN_JUMP pulse already sent in current ladder jump lock
+  float m_ladderGroundStartTime{0.0f}; // timer for invalid ladder current waypoint while on ground
   float m_buttonPushTime{0.0f}; // time to push the button
+  float m_jumpDuckStartTime{0.0f}; // delayed airborne duck start for upward jumps
+  float m_jumpDuckEndTime{0.0f}; // delayed airborne duck end for upward jumps
+  int16_t m_jumpLookTarget{-1}; // fixed jump look target waypoint index
+  bool m_jumpLookTargetActive{false}; // jump look target is currently valid
+  float m_jumpLookDeadline{0.0f}; // timeout for keeping jump look target lock
+  Vector m_debugJumpTarget{nullvec}; // debug marker for computed ground jump target
+  float m_debugJumpTargetTime{0.0f}; // expiry time of jump target marker
+
 
   Vector m_moveAngles{nullvec}; // bot move angles
   float m_lookYawVel{0.0f};     // look yaw velocity

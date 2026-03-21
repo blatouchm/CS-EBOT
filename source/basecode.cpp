@@ -642,22 +642,39 @@ void Bot::BaseUpdate(void) {
         m_strafeSpeed = 0.0f;
         m_moveSpeed = pev->maxspeed;
         DoWaypointNav();
+        const bool ladderJumpInFlightLock =
+            IsValidWaypoint(m_ladderJumpRetryTarget) &&
+            (m_ladderJumpRetryDeadline > tempTimer);
+
         Vector directionOld;
-        if (IsOnLadder() || IsInWater())
+        if (ladderJumpInFlightLock) {
+          const Path *jumpTarget = g_waypoint->GetPath(m_ladderJumpRetryTarget);
+          if (jumpTarget)
+            directionOld = (jumpTarget->origin - pev->origin).Normalize();
+          else
+            directionOld = nullvec;
+
+          // During ladder jump lock, do not let collision recovery inject
+          // extra movement buttons.
+          ResetCollideState();
+        } else if (IsOnLadder() || IsInWater()) {
           directionOld = ((m_destOrigin + pev->velocity * -m_pathInterval) -
                           (pev->origin + pev->velocity * m_pathInterval))
                              .Normalize();
-        else
+        } else {
           directionOld = ((m_destOrigin + pev->velocity * -m_pathInterval) -
                           (pev->origin + pev->velocity * m_pathInterval))
                              .Normalize2D();
+        }
 
         if (directionOld.GetLengthSquared() > 0.0001f) {
           m_moveAngles = directionOld.ToAngles();
           m_moveAngles.x = -m_moveAngles.x; // invert for engine
           m_moveAngles.ClampAngles();
         }
-        CheckStuck(directionOld, m_pathInterval);
+
+        if (!ladderJumpInFlightLock)
+          CheckStuck(directionOld, m_pathInterval);
       }
     }
 
@@ -781,11 +798,29 @@ inline int GetMaxClip(const int &id) {
 void Bot::CheckSlowThink(void) {
   const float tempTimer = engine->GetTime();
   if (m_waypointTime < tempTimer) {
+    const bool ladderTraverse =
+        IsOnLadder() ||
+        (IsValidWaypoint(m_currentWaypointIndex) && (m_waypoint.flags & WAYPOINT_LADDER));
+
     if ((m_currentWaypointIndex == m_zhCampPointIndex ||
          m_currentWaypointIndex == m_myMeshWaypoint) &&
         IsValidWaypoint(m_currentWaypointIndex))
       m_waypointTime = tempTimer + 7.0f;
-    else {
+    else if (ladderTraverse) {
+      if (m_navNode.HasNext()) {
+        int16_t ladderResetIndex =
+            g_waypoint->FindNearestToEnt(pev->origin, 2048.0f, m_myself);
+        if (!IsValidWaypoint(ladderResetIndex))
+          ladderResetIndex = g_waypoint->FindNearest(pev->origin);
+
+        if (IsValidWaypoint(ladderResetIndex))
+          ChangeWptIndex(ladderResetIndex);
+        else
+          FindWaypoint();
+      }
+
+      m_waypointTime = tempTimer + 12.0f;
+    } else {
       m_navNode.Clear();
       FindWaypoint();
       return;
@@ -796,8 +831,27 @@ void Bot::CheckSlowThink(void) {
   if (m_isZombieBot)
     SelectKnife();
   else {
-    if (!m_currentWeapon)
+    const bool atHumanCamp =
+        IsValidWaypoint(m_currentWaypointIndex) &&
+        (m_currentWaypointIndex == m_zhCampPointIndex ||
+         m_currentWaypointIndex == m_myMeshWaypoint);
+    extern ConVar ebot_human_target_max_distance;
+    const float zombieThreatMaxDistance =
+        ebot_human_target_max_distance.GetFloat();
+    const bool zombieThreatNearby =
+        m_hasEnemiesNear && !FNullEnt(m_nearestEnemy) &&
+        IsZombieEntity(m_nearestEnemy) &&
+        (zombieThreatMaxDistance < 0.0f ||
+         (pev->origin - m_nearestEnemy->v.origin).GetLengthSquared2D() <=
+             squaredf(zombieThreatMaxDistance));
+
+    if (atHumanCamp && (!m_currentWeapon || m_currentWeapon == Weapon::Knife))
       SelectBestWeapon();
+    else if (zombieThreatNearby &&
+        (!m_currentWeapon || m_currentWeapon == Weapon::Knife))
+      SelectBestWeapon();
+    else if (!m_currentWeapon)
+      SelectKnife();
     else if (!m_hasEnemiesNear && !m_hasEntitiesNear &&
              GetCurrentState() != Process::ThrowHE &&
              GetCurrentState() != Process::ThrowFB &&
@@ -941,6 +995,65 @@ bool Bot::IsAttacking(const edict_t *player) {
 }
 
 void Bot::UpdateLooking(void) {
+  const float currentTime = engine->GetTime();
+  if (m_jumpLookTargetActive && m_jumpLookDeadline > 0.0f &&
+      currentTime >= m_jumpLookDeadline) {
+    m_jumpLookTargetActive = false;
+    m_jumpLookTarget = -1;
+    m_jumpLookDeadline = 0.0f;
+  }
+
+  bool ladderJumpLink = false;
+  if (IsOnLadder() && m_navNode.HasNext()) {
+    const int16_t jumpTarget = m_navNode.Next();
+    for (int16_t i = 0; i < Const_MaxPathIndex; i++) {
+      if (m_waypoint.index[i] == jumpTarget) {
+        ladderJumpLink = (m_waypoint.connectionFlags[i] & PATHFLAG_JUMP) != 0;
+        break;
+      }
+    }
+  }
+
+  // During ladder-jump transitions, keep aiming at the jump target for both teams.
+  if (ladderJumpLink) {
+    LookAtAround();
+    return;
+  }
+
+  // For jump links, always keep view locked on jump destination.
+  // This must have priority over combat look logic.
+  const bool jumpLookLockActive =
+      m_jumpLookTargetActive && m_jumpLookDeadline > currentTime;
+  if (!IsOnLadder() &&
+      (jumpLookLockActive || (m_currentTravelFlags & PATHFLAG_JUMP) ||
+       m_waitForLanding ||
+       m_jumpReady)) {
+    m_updateLooking = true;
+    m_lookVelocity = nullvec;
+
+    if (m_jumpLookTargetActive) {
+      if (const Path *const jumpLookPath = g_waypoint->GetPath(m_jumpLookTarget))
+        m_lookAt = jumpLookPath->origin;
+      else {
+        m_jumpLookTargetActive = false;
+        m_jumpLookTarget = -1;
+        m_jumpLookDeadline = 0.0f;
+      }
+    }
+
+    if (!m_jumpLookTargetActive) {
+      const int16_t jumpLookIndex = m_navNode.HasNext() ? m_navNode.Next() : -1;
+      if (IsValidWaypoint(jumpLookIndex))
+        m_lookAt = g_waypoint->GetPath(jumpLookIndex)->origin;
+      else if (IsValidWaypoint(m_currentWaypointIndex))
+        m_lookAt = m_waypoint.origin;
+      else
+        m_lookAt = m_destOrigin;
+    }
+
+    return;
+  }
+
   if (m_isZombieBot) {
     if (IsInfectedDelay()) {
       m_buttons &= ~(IN_ATTACK | IN_ATTACK2);
@@ -1002,7 +1115,6 @@ void Bot::UpdateLooking(void) {
 
   LookAtAround();
 }
-
 void Bot::LookAtAround(void) {
   m_updateLooking = true;
   m_lookVelocity = nullvec;
@@ -1027,7 +1139,25 @@ void Bot::LookAtAround(void) {
       }
     }
   } else if (m_waypoint.flags & WAYPOINT_LADDER || IsOnLadder()) {
-    m_lookAt = m_destOrigin + pev->view_ofs;
+    bool ladderJumpLink = false;
+    int16_t jumpTarget = -1;
+    if (IsOnLadder() && m_navNode.HasNext()) {
+      jumpTarget = m_navNode.Next();
+      for (int16_t i = 0; i < Const_MaxPathIndex; i++) {
+        if (m_waypoint.index[i] == jumpTarget) {
+          ladderJumpLink = (m_waypoint.connectionFlags[i] & PATHFLAG_JUMP) != 0;
+          break;
+        }
+      }
+    }
+
+    if (ladderJumpLink && IsValidWaypoint(jumpTarget))
+      m_lookAt = g_waypoint->GetPath(jumpTarget)->origin;
+    else if (IsValidWaypoint(m_currentWaypointIndex))
+      m_lookAt = m_waypoint.origin;
+    else
+      m_lookAt = m_destOrigin;
+
     m_pauseTime = engine->GetTime() + 1.0f;
     return;
   } else if (m_isZombieBot) {
@@ -1234,11 +1364,28 @@ void Bot::CalculatePing(void) {
 }
 
 void Bot::MoveAction(void) {
-  if (m_buttons & IN_JUMP)
-    m_jumpTime = engine->GetTime();
+  const float currentTime = engine->GetTime();
 
-  if (m_jumpTime + 2.0f > engine->GetTime()) {
-    if (!IsOnFloor() && !IsInWater() && !IsOnLadder()) {
+  auto applyLadderMoveButtons = [&]() {
+    if (m_buttons & IN_JUMP) {
+      m_buttons &= ~IN_BACK;
+      m_buttons |= IN_FORWARD;
+      return;
+    }
+
+    m_buttons &= ~IN_BACK;
+    m_buttons |= IN_FORWARD;
+  };
+
+  if (m_buttons & IN_JUMP)
+    m_jumpTime = currentTime;
+
+  const bool jumpRecovery = (m_jumpTime + 2.0f > currentTime);
+  if (jumpRecovery) {
+    if (IsOnLadder()) {
+      // Keep a stable climb direction even right after jumping.
+      applyLadderMoveButtons();
+    } else if (!IsOnFloor() && !IsInWater()) {
       pev->flags |= FL_DUCKING;
       m_buttons |= IN_DUCK;
     }
@@ -1254,10 +1401,7 @@ void Bot::MoveAction(void) {
       else if (m_moveAngles.x < -60.0f)
         m_buttons |= IN_JUMP;
     } else if (IsOnLadder()) {
-      if (InFieldOfView(m_destOrigin - EyePosition()) < 180.0f)
-        m_buttons |= IN_FORWARD;
-      else
-        m_buttons |= IN_BACK;
+      applyLadderMoveButtons();
     } else {
       if (m_moveSpeed > 0.0f)
         m_buttons |= IN_FORWARD;
@@ -1270,198 +1414,360 @@ void Bot::MoveAction(void) {
         m_buttons |= IN_MOVELEFT;
     }
 
-    if (m_duckTime > engine->GetTime())
+    if (m_duckTime > currentTime)
       m_buttons |= IN_DUCK;
+  }
+
+  if (m_jumpDuckEndTime > currentTime) {
+    if (currentTime >= m_jumpDuckStartTime && !IsOnFloor() && !IsOnLadder() &&
+        !IsInWater())
+      m_buttons |= IN_DUCK;
+  } else if (m_jumpDuckEndTime > 0.0f) {
+    m_jumpDuckStartTime = 0.0f;
+    m_jumpDuckEndTime = 0.0f;
+  }
+
+  if (m_jumpLookTargetActive && m_jumpLookDeadline > 0.0f &&
+      currentTime >= m_jumpLookDeadline) {
+    m_jumpLookTargetActive = false;
+    m_jumpLookTarget = -1;
+    m_jumpLookDeadline = 0.0f;
+  }
+
+  if (!IsOnLadder() && m_jumpLookTargetActive &&
+      m_jumpLookDeadline > currentTime) {
+    if (const Path *const jumpLookPath = g_waypoint->GetPath(m_jumpLookTarget)) {
+      m_updateLooking = true;
+      m_lookVelocity = nullvec;
+      m_lookAt = jumpLookPath->origin;
+    } else {
+      m_jumpLookTargetActive = false;
+      m_jumpLookTarget = -1;
+      m_jumpLookDeadline = 0.0f;
+    }
   }
 }
 
 void Bot::DebugModeMsg(void) {
-  if (!ebot_debug.GetBool())
-    return;
+    if (!ebot_debug.GetBool())
+        return;
 
-  static float timeDebugUpdate = 0.0f;
-  static int16_t index{-1}, goal{-1};
-  static Process processID{Process::Default},
-      rememberedProcessID{Process::Default};
-  static edict_t *mi{g_hostEntity};
-  for (const auto &player : g_clients) {
-    mi = player.ent;
-    if (!IsValidPlayer(mi))
-      continue;
+    static float timeDebugUpdate = 0.0f;
+    static int16_t index{ -1 }, goal{ -1 };
+    static Process processID{ Process::Default },
+        rememberedProcessID{ Process::Default };
+    static edict_t* mi{ g_hostEntity };
+    for (const auto& player : g_clients) {
+        mi = player.ent;
+        if (!IsValidPlayer(mi))
+            continue;
 
-    if (IsValidBot(mi))
-      continue;
+        if (IsValidBot(mi))
+            continue;
 
-    if (mi->v.iuser2 != m_index + 1)
-      continue;
+        if (mi->v.iuser2 != m_index + 1)
+            continue;
 
-    if (timeDebugUpdate < engine->GetTime()) {
-      if (!FNullEnt(g_helicopter)) {
-        const Vector center = GetBoxOrigin(g_helicopter);
-        extern ConVar ebot_helicopter_width;
-        MakeVectors(g_helicopter->v.angles);
-        const Vector right =
-            center + g_pGlobals->v_right * ebot_helicopter_width.GetFloat();
-        const Vector left =
-            center - g_pGlobals->v_right * ebot_helicopter_width.GetFloat();
-        const Color col = Color(255, 0, 255, 255);
-        engine->DrawLine(mi, center, right, col, 5, 0, 0, 10);
-        engine->DrawLine(mi, center, left, col, 5, 0, 0, 10);
-      }
+        if (timeDebugUpdate < engine->GetTime()) {
+            if (!FNullEnt(g_helicopter)) {
+                const Vector center = GetBoxOrigin(g_helicopter);
+                extern ConVar ebot_helicopter_width;
+                MakeVectors(g_helicopter->v.angles);
+                const Vector right =
+                    center + g_pGlobals->v_right * ebot_helicopter_width.GetFloat();
+                const Vector left =
+                    center - g_pGlobals->v_right * ebot_helicopter_width.GetFloat();
+                const Color col = Color(255, 0, 255, 255);
+                engine->DrawLine(mi, center, right, col, 5, 0, 0, 10);
+                engine->DrawLine(mi, center, left, col, 5, 0, 0, 10);
+            }
 
-      processID = m_currentProcess;
-      index = m_currentWaypointIndex;
-      goal = m_currentGoalIndex;
+            processID = m_currentProcess;
+            index = m_currentWaypointIndex;
+            goal = m_currentGoalIndex;
 
-      char processName[80];
-      snprintf(processName, sizeof(processName), "%s", GetProcessName(m_currentProcess));
+            char processName[80];
+            const float currentTime = engine->GetTime();
+            const char* jumpProcessName = nullptr;
 
-      char rememberedProcessName[80];
-      snprintf(rememberedProcessName, sizeof(rememberedProcessName), "%s", GetProcessName(m_rememberedProcess));
+            bool ladderJumpLink = false;
+            Vector ladderJumpTarget = m_destOrigin;
+            if (IsOnLadder() && m_navNode.HasNext()) {
+                const int16_t nextIndex = m_navNode.Next();
+                for (int16_t i = 0; i < Const_MaxPathIndex; i++) {
+                    if (m_waypoint.index[i] != nextIndex)
+                        continue;
 
-      char weaponName[80], botType[32];
-      char enemyName[80], friendName[80];
+                    ladderJumpLink = (m_waypoint.connectionFlags[i] & PATHFLAG_JUMP) != 0;
+                    if (ladderJumpLink) {
+                        const Path* nextPath = g_waypoint->GetPath(nextIndex);
+                        if (nextPath)
+                            ladderJumpTarget = nextPath->origin;
+                    }
+                    break;
+                }
+            }
 
-      if (IsAlive(m_nearestEntity) && m_entityDistance < m_enemyDistance)
-        snprintf(enemyName, sizeof(enemyName), "%s", GetEntityName(m_nearestEntity));
-      else if (IsAlive(m_nearestEnemy))
-        snprintf(enemyName, sizeof(enemyName), "%s", GetEntityName(m_nearestEnemy));
-      else
-        snprintf(enemyName, sizeof(enemyName), "%s", GetEntityName(nullptr));
+            const bool ladderJumpWindow =
+                IsOnLadder() && ladderJumpLink &&
+                (pev->origin - m_waypoint.origin).GetLengthSquared() < squaredf(72.0f);
+            const bool ladderJumpVisible =
+                IsOnLadder() && ladderJumpLink && IsInViewCone(ladderJumpTarget);
+            const bool ladderJumpAimReady =
+                ladderJumpVisible &&
+                InFieldOfView(ladderJumpTarget - EyePosition()) <= 10.0f;
 
-      if (IsAlive(m_nearestFriend))
-        snprintf(friendName, sizeof(friendName), "%s", GetEntityName(m_nearestFriend));
-      else
-        snprintf(friendName, sizeof(friendName), "%s", GetEntityName(nullptr));
+            /*
+            jump phases:
+        - LJ_ToSource: bot is not yet at the jump source waypoint and is moving back to it.
+        - LJ_AimTarget: bot is at the source area but not yet properly aimed at the target waypoint.
+        - LJ_PrepAim1s: bot holds position and aim on the target for 1 second before jumping.
+        - LJ_Ready: all conditions are met and jump should trigger immediately.
+        - LJ_InFlightLock: jump is in progress; bot keeps view locked, sends IN_JUMP only on first tick, then keeps IN_FORWARD.
+        - LJ_WaitLanding: bot is waiting for landing / jump completion.
+        - LJ_TimeoutReset: jump attempt timed out, process is reset and retried.
+            */
 
-      char weaponCount = 0;
-      WeaponSelect *selectTab = &g_weaponSelect[0];
-      while (m_currentWeapon != selectTab[weaponCount].id &&
-             weaponCount < Const_NumWeapons)
-        weaponCount++;
+            if (IsValidWaypoint(m_ladderJumpRetryTarget) &&
+                m_ladderJumpRetryDeadline > currentTime) {
+                jumpProcessName = "LJ_InFlightLock";
+            }
+            else if (m_ladderJumpRetryDeadline > 0.0f &&
+                currentTime >= m_ladderJumpRetryDeadline) {
+                jumpProcessName = "LJ_TimeoutReset";
+            }
+            else if (m_ladderJumpPrepTime > currentTime) {
+                jumpProcessName = "LJ_PrepAim1s";
+            }
+            else if (ladderJumpLink) {
+                if (!ladderJumpWindow && !m_waitForLanding)
+                    jumpProcessName = "LJ_ToSource";
+                else if (!ladderJumpAimReady)
+                    jumpProcessName = "LJ_AimTarget";
+                else if (ladderJumpWindow && !m_waitForLanding)
+                    jumpProcessName = "LJ_Ready";
+                else if (m_waitForLanding)
+                    jumpProcessName = "LJ_WaitLanding";
+            }
+            else if (m_waitForLanding) {
+                jumpProcessName = "LJ_WaitLanding";
+            }
 
-      // set the bot type
-      snprintf(botType, sizeof(botType), "%s%s%s",
-              m_personality == Personality::Rusher ? "Rusher" : "",
-              m_personality == Personality::Careful ? "Careful" : "",
-              m_personality == Personality::Normal ? "Normal" : "");
+            if (jumpProcessName)
+                snprintf(processName, sizeof(processName), "%s", jumpProcessName);
+            else
+                snprintf(processName, sizeof(processName), "%s",
+                    GetProcessName(m_currentProcess));
 
-      if (weaponCount >= Const_NumWeapons) {
-        // prevent printing unknown message from known weapons
-        switch (m_currentWeapon) {
-        case Weapon::HeGrenade: {
-          snprintf(weaponName, sizeof(weaponName), "weapon_hegrenade");
-          break;
+            char rememberedProcessName[80];
+            snprintf(rememberedProcessName, sizeof(rememberedProcessName), "%s", GetProcessName(m_rememberedProcess));
+
+            char weaponName[80], botType[32];
+            char enemyName[80], friendName[80];
+            char buttonsName[256];
+            buttonsName[0] = '\0';
+            int buttonsLen = 0;
+            const uint16_t activeButtons = m_oldButtons;
+            auto appendButtonName = [&](const uint16_t flag, const char* name) {
+                if (!(activeButtons & flag))
+                    return;
+
+                const int remainingChars =
+                    static_cast<int>(sizeof(buttonsName)) - buttonsLen;
+                if (remainingChars <= 1)
+                    return;
+
+                const int writtenChars = snprintf(buttonsName + buttonsLen, remainingChars,
+                    "%s%s", buttonsLen ? " | " : "", name);
+                if (writtenChars > 0) {
+                    if (writtenChars >= remainingChars)
+                        buttonsLen = static_cast<int>(sizeof(buttonsName)) - 1;
+                    else
+                        buttonsLen += writtenChars;
+                }
+                };
+
+            if (IsAlive(m_nearestEntity) && m_entityDistance < m_enemyDistance)
+                snprintf(enemyName, sizeof(enemyName), "%s", GetEntityName(m_nearestEntity));
+            else if (IsAlive(m_nearestEnemy))
+                snprintf(enemyName, sizeof(enemyName), "%s", GetEntityName(m_nearestEnemy));
+            else
+                snprintf(enemyName, sizeof(enemyName), "%s", GetEntityName(nullptr));
+
+            if (IsAlive(m_nearestFriend))
+                snprintf(friendName, sizeof(friendName), "%s", GetEntityName(m_nearestFriend));
+            else
+                snprintf(friendName, sizeof(friendName), "%s", GetEntityName(nullptr));
+
+            char weaponCount = 0;
+            WeaponSelect* selectTab = &g_weaponSelect[0];
+            while (m_currentWeapon != selectTab[weaponCount].id &&
+                weaponCount < Const_NumWeapons)
+                weaponCount++;
+
+            // set the bot type
+            snprintf(botType, sizeof(botType), "%s%s%s",
+                m_personality == Personality::Rusher ? "Rusher" : "",
+                m_personality == Personality::Careful ? "Careful" : "",
+                m_personality == Personality::Normal ? "Normal" : "");
+
+            if (weaponCount >= Const_NumWeapons) {
+                // prevent printing unknown message from known weapons
+                switch (m_currentWeapon) {
+                case Weapon::HeGrenade: {
+                    snprintf(weaponName, sizeof(weaponName), "weapon_hegrenade");
+                    break;
+                }
+                case Weapon::FbGrenade: {
+                    snprintf(weaponName, sizeof(weaponName), "weapon_flashbang");
+                    break;
+                }
+                case Weapon::SmGrenade: {
+                    snprintf(weaponName, sizeof(weaponName), "weapon_smokegrenade");
+                    break;
+                }
+                case Weapon::C4: {
+                    snprintf(weaponName, sizeof(weaponName), "weapon_c4");
+                    break;
+                }
+                default:
+                    snprintf(weaponName, sizeof(weaponName), "Unknown! (%d)", m_currentWeapon);
+                }
+            }
+            else
+                snprintf(weaponName, sizeof(weaponName), "%s", selectTab[weaponCount].weaponName);
+
+            appendButtonName(IN_FORWARD, "IN_FORWARD");
+            appendButtonName(IN_BACK, "IN_BACK");
+            appendButtonName(IN_MOVELEFT, "IN_MOVELEFT");
+            appendButtonName(IN_MOVERIGHT, "IN_MOVERIGHT");
+            appendButtonName(IN_JUMP, "IN_JUMP");
+            appendButtonName(IN_DUCK, "IN_DUCK");
+            appendButtonName(IN_USE, "IN_USE");
+            appendButtonName(IN_ATTACK, "IN_ATTACK");
+            appendButtonName(IN_ATTACK2, "IN_ATTACK2");
+            appendButtonName(IN_RELOAD, "IN_RELOAD");
+            appendButtonName(IN_RUN, "IN_RUN");
+            appendButtonName(IN_LEFT, "IN_LEFT");
+            appendButtonName(IN_RIGHT, "IN_RIGHT");
+            appendButtonName(IN_ALT1, "IN_ALT1");
+            appendButtonName(IN_SCORE, "IN_SCORE");
+            appendButtonName(IN_CANCEL, "IN_CANCEL");
+            if (!buttonsName[0])
+                snprintf(buttonsName, sizeof(buttonsName), "none");
+
+            float distToCurrentWp = -1.0f;
+            if (IsValidWaypoint(m_currentWaypointIndex))
+                distToCurrentWp =
+                (pev->origin - g_waypoint->GetPath(m_currentWaypointIndex)->origin)
+                .GetLength();
+
+            char outputBuffer[1024];
+            snprintf(outputBuffer, sizeof(outputBuffer),
+                "\n\n\n\n\n\n\n"
+                "\n %s \n Process: %s (%i) RE-Process: %s (%i) \n"
+                "Weapon: %s  Clip: %d  Ammo: %d \n"
+                "Type: %s  Total Path: %d \n"
+                "Enemy: %s  Friend: %s \n\n"
+
+                "Current Index: %d  Goal Index: %d  Enemy Reachable: %s \n"
+                "DistToCurrentWP: %2.f \n"
+                "Nav: %d  Next Nav: %d  Enemy Distance: %2.f \n"
+                "Move Speed: %2.f  Strafe Speed: %2.f  Velocity: %2.f \n"
+                "Buttons: 0x%04X  %s \n"
+                "Stuck Time: %2.f  Stuck: %s \n",
+                GetEntityName(m_myself), processName,
+                static_cast<int>(m_currentProcess), rememberedProcessName,
+                static_cast<int>(m_rememberedProcess), &weaponName[7],
+                GetAmmoInClip(), m_ammo[g_weaponDefs[m_currentWeapon].ammo1],
+                botType, m_navNode.Length(), enemyName, friendName,
+
+                m_currentWaypointIndex, goal, m_isEnemyReachable ? "Yes" : "No",
+                distToCurrentWp,
+                m_navNode.IsEmpty() ? -1 : m_navNode.First(),
+                m_navNode.HasNext() ? m_navNode.Next() : -1, m_enemyDistance,
+                m_moveSpeed, m_strafeSpeed, pev->velocity.GetLength2D(),
+                activeButtons, buttonsName,
+                m_stuckTime, m_isStuck ? "Yes" : "No");
+
+            MESSAGE_BEGIN(MSG_ONE_UNRELIABLE, SVC_TEMPENTITY, nullptr, mi);
+            WRITE_BYTE(TE_TEXTMESSAGE);
+            WRITE_BYTE(1);
+            WRITE_SHORT(FixedSigned16(-1.0f, (1 << 13)));
+            WRITE_SHORT(FixedSigned16(0.0f, (1 << 13)));
+            WRITE_BYTE(0);
+            WRITE_BYTE(m_team == Team::Counter ? 0 : 255);
+            WRITE_BYTE(100);
+            WRITE_BYTE(m_team != Team::Counter ? 0 : 255);
+            WRITE_BYTE(0);
+            WRITE_BYTE(255);
+            WRITE_BYTE(255);
+            WRITE_BYTE(255);
+            WRITE_BYTE(0);
+            WRITE_SHORT(FixedUnsigned16(0.0f, (1 << 8)));
+            WRITE_SHORT(FixedUnsigned16(0.0f, (1 << 8)));
+            WRITE_SHORT(FixedUnsigned16(1.0f, (1 << 8)));
+            WRITE_STRING(const_cast<const char*>(&outputBuffer[0]));
+            MESSAGE_END();
+
+            timeDebugUpdate = engine->GetTime() + 0.6f;
         }
-        case Weapon::FbGrenade: {
-          snprintf(weaponName, sizeof(weaponName), "weapon_flashbang");
-          break;
+
+        if (m_hasEnemiesNear && !m_enemyOrigin.IsNull())
+            engine->DrawLine(mi, EyePosition(), m_enemyOrigin, Color(255, 0, 0, 255),
+                10, 0, 5, 1, LINE_SIMPLE);
+        else if (m_isZombieBot && !FNullEnt(m_nearestEnemy))
+            engine->DrawLine(mi, EyePosition(), m_nearestEnemy->v.origin,
+                Color(255, 0, 0, 255), 10, 0, 5, 1, LINE_SIMPLE);
+
+        if (m_navNode.HasNext()) {
+            int16_t i;
+            for (i = 0; i < m_navNode.Length() - 1; i++)
+                engine->DrawLine(mi, g_waypoint->GetPath(m_navNode.Get(i))->origin,
+                    g_waypoint->GetPath(m_navNode.Get(i + 1))->origin,
+                    Color(255, 100, 55, 255), 15, 0, 8, 1, LINE_SIMPLE);
         }
-        case Weapon::SmGrenade: {
-          snprintf(weaponName, sizeof(weaponName), "weapon_smokegrenade");
-          break;
+
+        if (IsValidWaypoint(m_currentWaypointIndex)) {
+            if (m_currentTravelFlags & PATHFLAG_JUMP)
+                engine->DrawLine(mi, pev->origin, m_destOrigin, Color(255, 0, 0, 255),
+                    15, 0, 8, 1, LINE_SIMPLE);
+            else if (m_currentTravelFlags & PATHFLAG_DOUBLE)
+                engine->DrawLine(mi, pev->origin, m_destOrigin, Color(0, 0, 255, 255),
+                    15, 0, 8, 1, LINE_SIMPLE);
+            else
+                engine->DrawLine(mi, pev->origin, m_destOrigin, Color(0, 255, 0, 255),
+                    15, 0, 8, 1, LINE_SIMPLE);
+
+            if (m_waypoint.radius > 4) {
+                const float root = static_cast<float>(m_waypoint.radius);
+                const Color& def = Color(0, 0, 255, 255);
+                engine->DrawLine(mi, m_waypoint.origin + Vector(root, root, 0.0f),
+                    m_waypoint.origin + Vector(-root, root, 0.0f), def, 5,
+                    0, 0, 10);
+                engine->DrawLine(mi, m_waypoint.origin + Vector(root, root, 0.0f),
+                    m_waypoint.origin + Vector(root, -root, 0.0f), def, 5,
+                    0, 0, 10);
+                engine->DrawLine(mi, m_waypoint.origin + Vector(-root, -root, 0.0f),
+                    m_waypoint.origin + Vector(root, -root, 0.0f), def, 5,
+                    0, 0, 10);
+                engine->DrawLine(mi, m_waypoint.origin + Vector(-root, -root, 0.0f),
+                    m_waypoint.origin + Vector(-root, root, 0.0f), def, 5,
+                    0, 0, 10);
+            }
         }
-        case Weapon::C4: {
-          snprintf(weaponName, sizeof(weaponName), "weapon_c4");
-          break;
+
+        if (m_debugJumpTargetTime > engine->GetTime()) {
+            constexpr float root = 8.0f;
+            const Color marker = Color(0, 0, 255, 255);
+            engine->DrawLine(mi, m_debugJumpTarget + Vector(root, -root, 0.0f),
+                m_debugJumpTarget + Vector(-root, root, 0.0f), marker,
+                5, 0, 0, 2, LINE_SIMPLE);
+            engine->DrawLine(mi, m_debugJumpTarget + Vector(-root, -root, 0.0f),
+                m_debugJumpTarget + Vector(root, root, 0.0f), marker,
+                5, 0, 0, 2, LINE_SIMPLE);
         }
-        default:
-          snprintf(weaponName, sizeof(weaponName), "Unknown! (%d)", m_currentWeapon);
-        }
-      } else
-        snprintf(weaponName, sizeof(weaponName), "%s", selectTab[weaponCount].weaponName);
-
-      char outputBuffer[512];
-      snprintf(outputBuffer, sizeof(outputBuffer),
-              "\n\n\n\n\n\n\n"
-              "\n %s \n Process: %s (%i) RE-Process: %s (%i) \n"
-              "Weapon: %s  Clip: %d  Ammo: %d \n"
-              "Type: %s  Total Path: %d \n"
-              "Enemy: %s  Friend: %s \n\n"
-
-              "Current Index: %d  Goal Index: %d  Enemy Reachable: %s \n"
-              "Nav: %d  Next Nav: %d  Enemy Distance: %2.f \n"
-              "Move Speed: %2.f  Strafe Speed: %2.f  Velocity: %2.f \n"
-              "Stuck Time: %2.f  Stuck: %s \n",
-              GetEntityName(m_myself), processName,
-              static_cast<int>(m_currentProcess), rememberedProcessName,
-              static_cast<int>(m_rememberedProcess), &weaponName[7],
-              GetAmmoInClip(), m_ammo[g_weaponDefs[m_currentWeapon].ammo1],
-              botType, m_navNode.Length(), enemyName, friendName,
-
-              m_currentWaypointIndex, goal, m_isEnemyReachable ? "Yes" : "No",
-              m_navNode.IsEmpty() ? -1 : m_navNode.First(),
-              m_navNode.HasNext() ? m_navNode.Next() : -1, m_enemyDistance,
-              m_moveSpeed, m_strafeSpeed, pev->velocity.GetLength2D(),
-              m_stuckTime, m_isStuck ? "Yes" : "No");
-
-      MESSAGE_BEGIN(MSG_ONE_UNRELIABLE, SVC_TEMPENTITY, nullptr, mi);
-      WRITE_BYTE(TE_TEXTMESSAGE);
-      WRITE_BYTE(1);
-      WRITE_SHORT(FixedSigned16(-1.0f, (1 << 13)));
-      WRITE_SHORT(FixedSigned16(0.0f, (1 << 13)));
-      WRITE_BYTE(0);
-      WRITE_BYTE(m_team == Team::Counter ? 0 : 255);
-      WRITE_BYTE(100);
-      WRITE_BYTE(m_team != Team::Counter ? 0 : 255);
-      WRITE_BYTE(0);
-      WRITE_BYTE(255);
-      WRITE_BYTE(255);
-      WRITE_BYTE(255);
-      WRITE_BYTE(0);
-      WRITE_SHORT(FixedUnsigned16(0.0f, (1 << 8)));
-      WRITE_SHORT(FixedUnsigned16(0.0f, (1 << 8)));
-      WRITE_SHORT(FixedUnsigned16(1.0f, (1 << 8)));
-      WRITE_STRING(const_cast<const char *>(&outputBuffer[0]));
-      MESSAGE_END();
-
-      timeDebugUpdate = engine->GetTime() + 0.6f;
     }
-
-    if (m_hasEnemiesNear && !m_enemyOrigin.IsNull())
-      engine->DrawLine(mi, EyePosition(), m_enemyOrigin, Color(255, 0, 0, 255),
-                       10, 0, 5, 1, LINE_SIMPLE);
-    else if (m_isZombieBot && !FNullEnt(m_nearestEnemy))
-      engine->DrawLine(mi, EyePosition(), m_nearestEnemy->v.origin,
-                       Color(255, 0, 0, 255), 10, 0, 5, 1, LINE_SIMPLE);
-
-    if (m_navNode.HasNext()) {
-      int16_t i;
-      for (i = 0; i < m_navNode.Length() - 1; i++)
-        engine->DrawLine(mi, g_waypoint->GetPath(m_navNode.Get(i))->origin,
-                         g_waypoint->GetPath(m_navNode.Get(i + 1))->origin,
-                         Color(255, 100, 55, 255), 15, 0, 8, 1, LINE_SIMPLE);
-    }
-
-    if (IsValidWaypoint(m_currentWaypointIndex)) {
-      if (m_currentTravelFlags & PATHFLAG_JUMP)
-        engine->DrawLine(mi, pev->origin, m_destOrigin, Color(255, 0, 0, 255),
-                         15, 0, 8, 1, LINE_SIMPLE);
-      else if (m_currentTravelFlags & PATHFLAG_DOUBLE)
-        engine->DrawLine(mi, pev->origin, m_destOrigin, Color(0, 0, 255, 255),
-                         15, 0, 8, 1, LINE_SIMPLE);
-      else
-        engine->DrawLine(mi, pev->origin, m_destOrigin, Color(0, 255, 0, 255),
-                         15, 0, 8, 1, LINE_SIMPLE);
-
-      if (m_waypoint.radius > 4) {
-        const float root = static_cast<float>(m_waypoint.radius);
-        const Color &def = Color(0, 0, 255, 255);
-        engine->DrawLine(mi, m_waypoint.origin + Vector(root, root, 0.0f),
-                         m_waypoint.origin + Vector(-root, root, 0.0f), def, 5,
-                         0, 0, 10);
-        engine->DrawLine(mi, m_waypoint.origin + Vector(root, root, 0.0f),
-                         m_waypoint.origin + Vector(root, -root, 0.0f), def, 5,
-                         0, 0, 10);
-        engine->DrawLine(mi, m_waypoint.origin + Vector(-root, -root, 0.0f),
-                         m_waypoint.origin + Vector(root, -root, 0.0f), def, 5,
-                         0, 0, 10);
-        engine->DrawLine(mi, m_waypoint.origin + Vector(-root, -root, 0.0f),
-                         m_waypoint.origin + Vector(-root, root, 0.0f), def, 5,
-                         0, 0, 10);
-      }
-    }
-  }
 }
 
 // this function gets called by network message handler, when screenfade message
