@@ -475,6 +475,34 @@ void Bot::DoWaypointNav(void) {
     m_destOrigin = m_waypointOrigin;
   }
 
+  auto hasGroundBelowCurrentWaypoint = [&]() -> bool {
+    TraceResult tr;
+    const Vector origin = g_waypoint->m_paths[m_currentWaypointIndex].origin;
+    TraceLine(origin, origin - Vector(0.0f, 0.0f, 60.0f), TraceIgnore::Nothing,
+              m_myself, &tr);
+    return tr.flFraction < 1.0f;
+  };
+
+  // WAIT UNTIL GROUND must block any jump/fall behavior until ground appears.
+  if ((m_waypoint.flags & WAYPOINT_WAITUNTIL) &&
+      !hasGroundBelowCurrentWaypoint()) {
+    m_jumpReady = false;
+    m_waitForLanding = false;
+    m_doubleJumpPending = false;
+    m_doubleJumpTime = 0.0f;
+    m_jumpLookTargetActive = false;
+    m_jumpLookTarget = -1;
+    m_jumpLookDeadline = 0.0f;
+    m_ladderJumpInitialPressUsed = false;
+    m_waterJumpHoldEndTime = 0.0f;
+
+    m_buttons &= ~(IN_JUMP | IN_FORWARD | IN_BACK | IN_MOVELEFT | IN_MOVERIGHT);
+    m_moveSpeed = 0.0f;
+    m_strafeSpeed = 0.0f;
+    ResetStuck();
+    return;
+  }
+
   bool ladderJumpLink = false;
   int16_t ladderJumpTargetIndex = -1;
   Vector ladderJumpTarget = m_destOrigin;
@@ -1037,17 +1065,6 @@ void Bot::DoWaypointNav(void) {
         m_strafeSpeed = 0.0f;
       }
 
-      return;
-    }
-  } else if (m_waypoint.flags & WAYPOINT_WAITUNTIL) {
-    TraceResult tr;
-    const Vector origin = g_waypoint->m_paths[m_currentWaypointIndex].origin;
-    TraceLine(origin, m_waypoint.origin - Vector(0.0f, 0.0f, 60.0f),
-              TraceIgnore::Nothing, m_myself, &tr);
-    if (tr.flFraction >= 1.0f) {
-      ResetStuck();
-      m_moveSpeed = 0.0f;
-      m_strafeSpeed = 0.0f;
       return;
     }
   } else if (m_waypoint.flags & WAYPOINT_HELICOPTER) {
@@ -3087,6 +3104,51 @@ void Bot::CheckStuck(const Vector &directionNormal, const float finterval) {
     }
   }
 
+  auto handleZombieBoost = [&]() -> bool {
+    if (!(m_isZombieBot && (m_waypoint.flags & WAYPOINT_DJUMP) && IsOnFloor() &&
+          ((pev->origin - m_waypoint.origin).GetLengthSquared() <
+           squaredf(54.0f))))
+      return false;
+
+    bool teammateHoldingDuck = false;
+    for (const auto &client : g_clients) {
+      if (!(client.flags & CFLAG_USED) || !(client.flags & CFLAG_ALIVE) ||
+          FNullEnt(client.ent) || client.ent == m_myself)
+        continue;
+
+      if (!IsZombieEntity(client.ent))
+        continue;
+
+      if ((client.ent->v.origin - m_waypoint.origin).GetLengthSquared() >=
+          squaredf(54.0f))
+        continue;
+
+      if ((client.ent->v.flags & FL_DUCKING) || (client.ent->v.buttons & IN_DUCK) ||
+          (client.ent->v.oldbuttons & IN_DUCK)) {
+        teammateHoldingDuck = true;
+        break;
+      }
+    }
+
+    if (teammateHoldingDuck) {
+      m_buttons |= IN_JUMP;
+      return true;
+    }
+
+    const float time = engine->GetTime();
+    if (m_duckTime <= time) {
+      m_duckTime = time + 3.0f;
+
+      if (ebot_debug.GetBool()) {
+        ServerPrint("%s zombie boost: holding duck for 3.0s (wpt %d)",
+                    GetEntityName(m_myself), m_currentWaypointIndex);
+      }
+    }
+
+    m_buttons |= IN_DUCK;
+    return true;
+  };
+
   if (m_isStuck) {
     if (m_isEnemyReachable)
       CheckReachable();
@@ -3318,17 +3380,14 @@ void Bot::CheckStuck(const Vector &directionNormal, const float finterval) {
         }
       }
     }
+
+    handleZombieBoost();
   } else {
     m_stuckTime -= finterval;
     if (m_stuckTime < 0.0f)
       m_stuckTime = 0.0f;
 
-    // boosting improve
-    if (m_isZombieBot && m_waypoint.flags & WAYPOINT_DJUMP && IsOnFloor() &&
-        ((pev->origin - m_waypoint.origin).GetLengthSquared() <
-         squaredf(54.0f)))
-      m_buttons |= IN_DUCK;
-    else {
+    if (!handleZombieBoost()) {
       if (m_probeTime + 1.0f < engine->GetTime())
         ResetCollideState(); // reset collision memory if not being stuck for 1
                              // sec

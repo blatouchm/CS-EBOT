@@ -1285,6 +1285,12 @@ void ClientCommand(edict_t* ent)
 						reopenWaypointMenu = true;
 						break;
 					}
+					case 7:
+					{
+						g_waypoint->ToggleFlags(WAYPOINT_DJUMP);
+						reopenWaypointMenu = true;
+						break;
+					}
 					case 8:
 					{
 						DisplayMenuToClient(ent, &g_menus[26]);

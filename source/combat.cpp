@@ -610,7 +610,7 @@ void Bot::SelectBestWeapon(void)
 
 	if (!m_isSlowThink)
 		return;
-	
+		
 	int i, id;
 	const WeaponSelect* selectTab = &g_weaponSelect[0];
 	int chosenWeaponIndex = -1;
@@ -652,12 +652,22 @@ int Bot::GetHighestWeapon(void)
 	return -1;
 }
 
-static float wpnTimer = 0.05;
+static float wpnTimer[32]{0.0f};
 void Bot::SelectWeaponByName(const char* name)
 {
-	if (wpnTimer < engine->GetTime())
-	{
-		FakeClientCommand(m_myself, name);
-		wpnTimer = engine->GetTime() + 0.05;
-	}
+	if (IsNullString(name))
+		return;
+
+	if (m_index < 0 || m_index >= 32)
+		return;
+
+	const float now = engine->GetTime();
+	if (wpnTimer[m_index] > now)
+		return;
+
+	if (g_isFakeCommand || g_fakeCommandTimer > now || !IsValidBot(m_myself))
+		return;
+
+	FakeClientCommand(m_myself, name);
+	wpnTimer[m_index] = now + 0.05f;
 }
