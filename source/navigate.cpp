@@ -1014,10 +1014,29 @@ void Bot::DoWaypointNav(void) {
     TraceLine(origin, origin - Vector(0.0f, 0.0f, 60.0f), TraceIgnore::Nothing,
               m_myself, &tr);
     if (tr.flFraction >= 1.0f) {
+      const int16_t blockedIndex = m_currentWaypointIndex;
       m_navNode.Clear();
       ResetStuck();
-      m_moveSpeed = 0.0f;
-      m_strafeSpeed = 0.0f;
+
+      // FALLCHECK waypoint is currently unsafe, reacquire nearby waypoint and
+      // build a fresh path instead of getting stuck.
+      ChangeWptIndex(-1);
+      int16_t sourceIndex = FindWaypoint();
+
+      if (m_currentGoalIndex == blockedIndex || m_currentGoalIndex == sourceIndex)
+        m_currentGoalIndex = -1;
+
+      if (IsValidWaypoint(sourceIndex)) {
+        FindPath(sourceIndex, m_currentGoalIndex);
+        if (!m_navNode.IsEmpty())
+          FollowPath();
+      }
+
+      if (m_navNode.IsEmpty()) {
+        m_moveSpeed = 0.0f;
+        m_strafeSpeed = 0.0f;
+      }
+
       return;
     }
   } else if (m_waypoint.flags & WAYPOINT_WAITUNTIL) {
@@ -1837,6 +1856,9 @@ inline const float GF_CostHuman(const int16_t &index, const int16_t &parent,
     return (HF_Auto(index, parent) * static_cast<float>(countCache)) +
            totalDistance;
 
+  if (parentFlags & WAYPOINT_JUMP)
+    return HF_Auto(index, parent) * 2.0f;
+
   return HF_Auto(index, parent);
 }
 
@@ -1959,7 +1981,7 @@ inline const float GF_CostNormal(const int16_t &index, const int16_t &parent,
     }
   }
 
-  if (parentFlags & WAYPOINT_LADDER)
+  if (parentFlags & (WAYPOINT_LADDER | WAYPOINT_JUMP))
     return HF_Auto(index, parent) * 2.0f;
 
   return HF_Auto(index, parent);
