@@ -876,6 +876,38 @@ Bot::~Bot(void)
 	}
 }
 
+void Bot::SelectSpawnLikeHumanGoal(void)
+{
+	if (!m_skipHumanCampThisRound && !g_waypoint->m_zmHmPoints.IsEmpty())
+	{
+		m_zhCampPointIndex = g_waypoint->m_zmHmPoints.Random();
+		m_currentGoalIndex = m_zhCampPointIndex;
+	}
+	else
+	{
+		m_zhCampPointIndex = -1;
+		m_currentGoalIndex = -1;
+	}
+}
+
+void Bot::EnsureGoalDiffersFromCurrentWaypoint(void)
+{
+	if (IsValidWaypoint(m_currentGoalIndex) &&
+		m_currentGoalIndex == m_currentWaypointIndex &&
+		g_numWaypoints > 1)
+	{
+		for (int i = 0; i < 16; i++)
+		{
+			const int16_t candidate = static_cast<int16_t>(crandomint(0, g_numWaypoints - 1));
+			if (candidate != m_currentWaypointIndex)
+			{
+				m_currentGoalIndex = candidate;
+				break;
+			}
+		}
+	}
+}
+
 // this function initializes a bot after creation & at the start of each round
 void Bot::NewRound(void)
 {
@@ -912,14 +944,9 @@ void Bot::NewRound(void)
 	m_rememberedProcess = Process::Default;
 	m_rememberedProcessTime = 0.0f;
 
-	if (!m_skipHumanCampThisRound && !g_waypoint->m_zmHmPoints.IsEmpty())
-	{
-		m_zhCampPointIndex = g_waypoint->m_zmHmPoints.Random();
-		m_currentGoalIndex = m_zhCampPointIndex;
-	}
-	else
-		m_zhCampPointIndex = -1;
+	SelectSpawnLikeHumanGoal();
 	m_myMeshWaypoint = -1;
+	m_waitForLeaveWaypoint = false;
 
 	m_hasEnemiesNear = false;
 	m_hasEntitiesNear = false;

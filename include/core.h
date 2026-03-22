@@ -159,6 +159,7 @@ enum WaypointFlag : uint32_t {
   WAYPOINT_LADDER = (1 << 5),      // waypoint is on ladder
   WAYPOINT_RESCUE = (1 << 6),      // waypoint is a hostage rescue point
   WAYPOINT_CAMP = (1 << 7),        // waypoint is a camping point
+  WAYPOINT_LEAVE = (1 << 8),       // release WAIT hold behavior marker
   WAYPOINT_DJUMP = (1 << 9),       // bot help's another bot (requster) to get
                                    // somewhere (using djump)
   WAYPOINT_ZMHMCAMP = (1 << 10),   // bots will camp at this waypoint
@@ -174,6 +175,7 @@ enum WaypointFlag : uint32_t {
   WAYPOINT_ONLYONE = (1 << 19), // to avoid multiple bots stuck on same waypoint
   WAYPOINT_WAITUNTIL = (1 << 20),  // inverse fall check
   WAYPOINT_HELICOPTER = (1 << 21), // helicopter for zombie escape maps
+  WAYPOINT_WAIT = (1 << 22), // hold position until bot reaches waypoint with LEAVE
   WAYPOINT_FALLCHECK = (1 << 26),  // bots will check ground
   WAYPOINT_JUMP = (1 << 27),       // for jump points
   WAYPOINT_SNIPER = (1 << 28),     // it's a specific sniper point
@@ -582,6 +584,8 @@ public:
   edict_t *FindButton(void);
   int16_t FindGoalZombie(void);
   int16_t FindGoalHuman(void);
+  void SelectSpawnLikeHumanGoal(void);
+  void EnsureGoalDiffersFromCurrentWaypoint(void);
 
   float InFieldOfView(const Vector &dest);
   bool IsWaypointOccupied(const int16_t index);
@@ -650,6 +654,7 @@ public:
   float m_infectDelayTime{0.0f}; // delay after human -> zombie infection
   bool m_jumpReady{false};      // get ready for jump at next frame
   bool m_waitForLanding{false}; // wait until land somewhere
+  bool m_waitForLeaveWaypoint{false}; // hold movement after WAIT until LEAVE is reached
   bool m_doubleJumpPending{false}; // waiting for delayed second jump
   float m_doubleJumpTime{0.0f}; // time for delayed second jump
 

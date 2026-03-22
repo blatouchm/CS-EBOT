@@ -151,45 +151,83 @@ void Bot::DefaultUpdate(void)
 	{
 		UpdateLooking();
 
-		if (m_isSlowThink)
-		{
-			FindEnemyEntities();
-			FindFriendsAndEnemiens();
-			CheckReachable();
-
-			// revert the zoom to normal
-			if (!m_hasEnemiesNear && !m_hasEntitiesNear && UsesSniper() && pev->fov != 90.0f)
-				m_buttons |= IN_ATTACK2;
-		}
-		else if (m_hasEnemiesNear && (m_isEnemyReachable || Math::FltZero(m_enemyDistance)))
-		{
-			if (!m_navNode.HasNext())
+			if (m_isSlowThink)
 			{
-				// find new safe spot
-				m_zhCampPointIndex = -1;
-				FindGoalHuman();
+				FindEnemyEntities();
+				FindFriendsAndEnemiens();
+				CheckReachable();
 
-				// use known waypoint first, then switch to auto
-				FindEscapePath(m_currentWaypointIndex, m_enemyOrigin);
-				m_currentWaypointIndex = -1;
-
-				MoveOut(m_enemyOrigin);
-
-				if (m_navNode.IsEmpty())
-					m_navNode.Stop();
+				// revert the zoom to normal
+				if (!m_hasEnemiesNear && !m_hasEntitiesNear && UsesSniper() && pev->fov != 90.0f)
+					m_buttons |= IN_ATTACK2;
 			}
-			else if (((pev->origin - g_waypoint->m_paths[m_navNode.First()].origin).GetLengthSquared() > ((m_nearestEnemy->v.origin + m_nearestEnemy->v.velocity) - g_waypoint->m_paths[m_navNode.First()].origin).GetLengthSquared() ||
-				(pev->origin - g_waypoint->m_paths[m_navNode.Next()].origin).GetLengthSquared() > ((m_nearestEnemy->v.origin + m_nearestEnemy->v.velocity) - g_waypoint->m_paths[m_navNode.Next()].origin).GetLengthSquared()) && ::IsInViewCone(pev->origin, m_nearestEnemy))
-			{
-				// find new safe spot if possible
-				m_zhCampPointIndex = -1;
-				FindGoalHuman();
 
+			if (m_waitForLeaveWaypoint)
+				FindWaypoint();
+
+			if (IsValidWaypoint(m_currentWaypointIndex))
+			{
+				const Path* const currentPath = g_waypoint->GetPath(m_currentWaypointIndex);
+				if (currentPath)
+				{
+					if ((currentPath->flags & WAYPOINT_LEAVE) && m_waitForLeaveWaypoint)
+					{
+						m_waitForLeaveWaypoint = false;
+						m_navNode.Clear();
+
+						SelectSpawnLikeHumanGoal();
+						if (!IsValidWaypoint(m_currentGoalIndex))
+							m_currentGoalIndex = FindGoalHuman();
+						EnsureGoalDiffersFromCurrentWaypoint();
+
+						if (IsValidWaypoint(m_currentWaypointIndex) &&
+							IsValidWaypoint(m_currentGoalIndex) &&
+							m_currentGoalIndex != m_currentWaypointIndex)
+							FindPath(m_currentWaypointIndex, m_currentGoalIndex);
+					}
+					else if (currentPath->flags & WAYPOINT_WAIT)
+						m_waitForLeaveWaypoint = true;
+				}
+			}
+
+			if (m_waitForLeaveWaypoint)
+			{
 				m_navNode.Clear();
-				FindEscapePath(m_currentWaypointIndex, m_enemyOrigin);
-				MoveOut(m_enemyOrigin);
-				m_navNode.Stop();
+				m_moveSpeed = 0.0f;
+				m_strafeSpeed = 0.0f;
+				ResetStuck();
+				return;
 			}
+
+			if (!m_isSlowThink && m_hasEnemiesNear && (m_isEnemyReachable || Math::FltZero(m_enemyDistance)))
+			{
+				if (!m_navNode.HasNext())
+				{
+					// find new safe spot
+					m_zhCampPointIndex = -1;
+					FindGoalHuman();
+
+					// use known waypoint first, then switch to auto
+					FindEscapePath(m_currentWaypointIndex, m_enemyOrigin);
+					m_currentWaypointIndex = -1;
+
+					MoveOut(m_enemyOrigin);
+
+					if (m_navNode.IsEmpty())
+						m_navNode.Stop();
+				}
+				else if (((pev->origin - g_waypoint->m_paths[m_navNode.First()].origin).GetLengthSquared() > ((m_nearestEnemy->v.origin + m_nearestEnemy->v.velocity) - g_waypoint->m_paths[m_navNode.First()].origin).GetLengthSquared() ||
+					(pev->origin - g_waypoint->m_paths[m_navNode.Next()].origin).GetLengthSquared() > ((m_nearestEnemy->v.origin + m_nearestEnemy->v.velocity) - g_waypoint->m_paths[m_navNode.Next()].origin).GetLengthSquared()) && ::IsInViewCone(pev->origin, m_nearestEnemy))
+				{
+					// find new safe spot if possible
+					m_zhCampPointIndex = -1;
+					FindGoalHuman();
+
+					m_navNode.Clear();
+					FindEscapePath(m_currentWaypointIndex, m_enemyOrigin);
+					MoveOut(m_enemyOrigin);
+					m_navNode.Stop();
+				}
 				else
 				{
 					// if our enemy is closer to this waypoint, just skip it otherwise we will get infected
@@ -216,8 +254,8 @@ void Bot::DefaultUpdate(void)
 						m_navNode.Stop();
 			}
 
-			return;
-		}
+				return;
+			}
 
 		if (m_currentWaypointIndex == m_zhCampPointIndex && IsValidWaypoint(m_zhCampPointIndex))
 		{

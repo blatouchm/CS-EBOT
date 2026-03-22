@@ -357,7 +357,7 @@ private:
 				continue;
 
 			path = &m_paths->Get(i);
-			if (path->flags & (WAYPOINT_GOAL | WAYPOINT_LADDER | WAYPOINT_CAMP | WAYPOINT_RESCUE | WAYPOINT_USEBUTTON))
+			if (path->flags & (WAYPOINT_GOAL | WAYPOINT_LADDER | WAYPOINT_CAMP | WAYPOINT_RESCUE | WAYPOINT_USEBUTTON | WAYPOINT_LEAVE | WAYPOINT_WAIT))
 				continue;
 
 			for (from = 0; from < m_numWaypoints; from++)
@@ -514,7 +514,7 @@ private:
 			if (!IsValidWaypoint(i))
 				continue;
 
-			if (m_paths->Get(i).flags & (WAYPOINT_GOAL | WAYPOINT_LADDER | WAYPOINT_CAMP | WAYPOINT_RESCUE | WAYPOINT_USEBUTTON | WAYPOINT_ZMHMCAMP))
+			if (m_paths->Get(i).flags & (WAYPOINT_GOAL | WAYPOINT_LADDER | WAYPOINT_CAMP | WAYPOINT_RESCUE | WAYPOINT_USEBUTTON | WAYPOINT_ZMHMCAMP | WAYPOINT_LEAVE | WAYPOINT_WAIT))
 				continue;
 
 			if (GetWaypointImportance(i) < 5.0f)
@@ -3041,7 +3041,7 @@ char* Waypoint::GetWaypointInfo(const int16_t id)
 		}
 	}
 	
-	snprintf(messageBuffer, sizeof(messageBuffer), "%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s", 
+	snprintf(messageBuffer, sizeof(messageBuffer), "%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s", 
 		(!path->flags && !jumpPoint) ? "(none)" : "", 
 		path->flags & WAYPOINT_LIFT ? "LIFT " : "", 
 		path->flags & WAYPOINT_CROUCH ? "CROUCH " : "", 
@@ -3066,6 +3066,8 @@ char* Waypoint::GetWaypointInfo(const int16_t id)
 		path->flags & WAYPOINT_FALLRISK ? "FALL RISK " : "",
 		path->flags & WAYPOINT_SPECIFICGRAVITY ? "SPECIFIC GRAVITY " : "",
 		path->flags & WAYPOINT_WAITUNTIL ? "WAIT UNTIL GROUND " : "",
+		path->flags & WAYPOINT_WAIT ? "WAIT " : "",
+		path->flags & WAYPOINT_LEAVE ? "LEAVE " : "",
 		path->flags & WAYPOINT_HELICOPTER ? "HELICOPTER " : "",
 		path->flags & WAYPOINT_ONLYONE ? "ONLY ONE BOT " : "");
 
@@ -3239,6 +3241,10 @@ void Waypoint::ShowWaypointMsg(void)
 							nodeColor = Color(255, 255, 0, 255);
 						else if (m_paths[i].flags & WAYPOINT_WAITUNTIL)
 							nodeColor = Color(0, 0, 255, 255);
+						else if (m_paths[i].flags & WAYPOINT_WAIT)
+							nodeColor = Color(255, 215, 0, 255);
+						else if (m_paths[i].flags & WAYPOINT_LEAVE)
+							nodeColor = Color(255, 140, 0, 255);
 
 						// colorize additional flags
 						Color nodeFlagColor = Color(0, 0, 0, 0);
@@ -3266,6 +3272,10 @@ void Waypoint::ShowWaypointMsg(void)
 							nodeFlagColor = Color(128, 0, 255, 255);
 						else if (m_paths[i].flags & WAYPOINT_WAITUNTIL)
 							nodeFlagColor = Color(250, 75, 150, 255);
+						else if (m_paths[i].flags & WAYPOINT_WAIT)
+							nodeFlagColor = Color(255, 215, 0, 255);
+						else if (m_paths[i].flags & WAYPOINT_LEAVE)
+							nodeFlagColor = Color(255, 140, 0, 255);
 
 						nodeColor.alpha = 255;
 						nodeFlagColor.alpha = 255;

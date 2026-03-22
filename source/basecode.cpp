@@ -926,6 +926,7 @@ void Bot::CheckSlowThink(void) {
     const bool zombieNow = IsZombieEntity(m_myself);
     if (m_isZombieBot != zombieNow) {
       m_isZombieBot = zombieNow;
+      m_waitForLeaveWaypoint = false;
       if (m_isZombieBot) {
         extern ConVar ebot_delay_after_infected;
         const float delay = ebot_delay_after_infected.GetFloat();
@@ -1555,6 +1556,9 @@ void Bot::DebugModeMsg(void) {
 
             if (jumpProcessName)
                 snprintf(processName, sizeof(processName), "%s", jumpProcessName);
+            else if (m_waitForLeaveWaypoint &&
+                m_currentProcess == Process::Default)
+                snprintf(processName, sizeof(processName), "%s", "WAIT");
             else
                 snprintf(processName, sizeof(processName), "%s",
                     GetProcessName(m_currentProcess));

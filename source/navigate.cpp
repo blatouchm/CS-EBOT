@@ -2695,6 +2695,26 @@ int16_t Bot::FindWaypoint(void) {
     };
 
     int16_t index;
+    if (m_waitForLeaveWaypoint) {
+      // In WAIT mode we must track the physically nearest waypoint (e.g. moving train)
+      // and not reuse cached/nav candidates, otherwise LEAVE may never be detected.
+      index = g_waypoint->FindNearestToEnt(pev->origin, 2048.0f, m_myself);
+      if (!isLadderDistanceValid(index))
+        index = -1;
+
+      if (!IsValidWaypoint(index)) {
+        index = g_waypoint->FindNearest(pev->origin);
+        if (!isLadderDistanceValid(index))
+          index = -1;
+      }
+
+      if (!IsValidWaypoint(index) && IsValidWaypoint(m_currentWaypointIndex))
+        index = m_currentWaypointIndex;
+
+      ChangeWptIndex(index);
+      return index;
+    }
+
     if (!m_isStuck && m_navNode.HasNext() &&
         isReachableCandidate(m_navNode.First()))
       index = m_navNode.First();
