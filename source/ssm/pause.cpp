@@ -16,6 +16,7 @@ void Bot::PauseStart(void)
 	m_ladderJumpRetrySource = -1;
 	m_ladderJumpRetryTarget = -1;
 	m_ladderJumpInitialPressUsed = false;
+	m_waterJumpHoldEndTime = 0.0f;
 	m_ladderGroundStartTime = 0.0f;
 	m_jumpLookTargetActive = false;
 	m_jumpLookTarget = -1;

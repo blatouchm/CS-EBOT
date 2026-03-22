@@ -543,6 +543,7 @@ public:
   int16_t m_ladderJumpRetrySource{-1}; // ladder jump source to restart on timeout
   int16_t m_ladderJumpRetryTarget{-1}; // ladder jump target to validate timeout
   bool m_ladderJumpInitialPressUsed{false}; // IN_JUMP pulse already sent in current ladder jump lock
+  float m_waterJumpHoldEndTime{0.0f}; // keep IN_JUMP held for water jump until this time
   float m_ladderGroundStartTime{0.0f}; // timer for invalid ladder current waypoint while on ground
   float m_buttonPushTime{0.0f}; // time to push the button
   float m_jumpDuckStartTime{0.0f}; // delayed airborne duck start for upward jumps
@@ -584,8 +585,7 @@ public:
   edict_t *FindButton(void);
   int16_t FindGoalZombie(void);
   int16_t FindGoalHuman(void);
-  void SelectSpawnLikeHumanGoal(void);
-  void EnsureGoalDiffersFromCurrentWaypoint(void);
+  bool FindNearestValidHumanCampGoal(void);
 
   float InFieldOfView(const Vector &dest);
   bool IsWaypointOccupied(const int16_t index);

@@ -175,15 +175,15 @@ void Bot::DefaultUpdate(void)
 						m_waitForLeaveWaypoint = false;
 						m_navNode.Clear();
 
-						SelectSpawnLikeHumanGoal();
-						if (!IsValidWaypoint(m_currentGoalIndex))
-							m_currentGoalIndex = FindGoalHuman();
-						EnsureGoalDiffersFromCurrentWaypoint();
+						//find new spot
+						m_zhCampPointIndex = -1;
+						m_myMeshWaypoint = -1;
+						m_currentGoalIndex = -1;
+						if (!FindNearestValidHumanCampGoal())
+							return;
 
-						if (IsValidWaypoint(m_currentWaypointIndex) &&
-							IsValidWaypoint(m_currentGoalIndex) &&
-							m_currentGoalIndex != m_currentWaypointIndex)
-							FindPath(m_currentWaypointIndex, m_currentGoalIndex);
+						FollowPath();
+						return;
 					}
 					else if (currentPath->flags & WAYPOINT_WAIT)
 						m_waitForLeaveWaypoint = true;

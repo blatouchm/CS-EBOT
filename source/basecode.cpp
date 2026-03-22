@@ -1676,7 +1676,7 @@ void Bot::DebugModeMsg(void) {
 
                 "Current Index: %d  Goal Index: %d  Enemy Reachable: %s \n"
                 "DistToCurrentWP: %2.f \n"
-                "Nav: %d  Next Nav: %d  Enemy Distance: %2.f \n"
+                "Nav: %d  Next Nav: %d  Last: %d  Enemy Distance: %2.f \n"
                 "Move Speed: %2.f  Strafe Speed: %2.f  Velocity: %2.f \n"
                 "Buttons: 0x%04X  %s \n"
                 "Stuck Time: %2.f  Stuck: %s \n",
@@ -1689,7 +1689,8 @@ void Bot::DebugModeMsg(void) {
                 m_currentWaypointIndex, goal, m_isEnemyReachable ? "Yes" : "No",
                 distToCurrentWp,
                 m_navNode.IsEmpty() ? -1 : m_navNode.First(),
-                m_navNode.HasNext() ? m_navNode.Next() : -1, m_enemyDistance,
+                m_navNode.HasNext() ? m_navNode.Next() : -1,
+                m_navNode.IsEmpty() ? -1 : m_navNode.Last(), m_enemyDistance,
                 m_moveSpeed, m_strafeSpeed, pev->velocity.GetLength2D(),
                 activeButtons, buttonsName,
                 m_stuckTime, m_isStuck ? "Yes" : "No");

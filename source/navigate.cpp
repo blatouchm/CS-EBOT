@@ -349,6 +349,81 @@ int16_t Bot::FindGoalHuman(void) {
   return m_currentGoalIndex;
 }
 
+bool Bot::FindNearestValidHumanCampGoal(void) {
+  if (!g_waypoint || g_waypoint->m_zmHmPoints.IsEmpty())
+    return false;
+
+  int16_t sourceIndex = m_currentWaypointIndex;
+  if (!IsValidWaypoint(sourceIndex))
+    sourceIndex = FindWaypoint();
+
+  if (!IsValidWaypoint(sourceIndex))
+    return false;
+
+  CArray<int16_t> candidates;
+  for (int16_t i = 0; i < g_waypoint->m_zmHmPoints.Size(); i++) {
+    const int16_t campIndex = g_waypoint->m_zmHmPoints.Get(i);
+    if (!IsValidWaypoint(campIndex) || campIndex == sourceIndex ||
+        candidates.Has(campIndex))
+      continue;
+
+    candidates.Push(campIndex);
+  }
+
+  while (!candidates.IsEmpty()) {
+    int16_t nearestSlot = -1;
+    int16_t nearestCampIndex = -1;
+    float nearestDistance = FLT_MAX;
+
+    for (int16_t i = 0; i < candidates.Size(); i++) {
+      const int16_t campIndex = candidates.Get(i);
+      if (!IsValidWaypoint(campIndex))
+        continue;
+
+      const float distance = GetWaypointDistance(sourceIndex, campIndex);
+      if (distance > nearestDistance)
+        continue;
+
+      nearestDistance = distance;
+      nearestCampIndex = campIndex;
+      nearestSlot = i;
+    }
+
+    if (!IsValidWaypoint(nearestCampIndex))
+      break;
+
+    candidates.RemoveAt(nearestSlot);
+    m_navNode.Clear();
+
+    int16_t srcIndex = sourceIndex;
+    int16_t destIndex = nearestCampIndex;
+    FindPath(srcIndex, destIndex);
+
+    if (m_navNode.IsEmpty() || m_navNode.Last() != nearestCampIndex) {
+      if (ebot_debug.GetBool()) {
+        ServerPrint("%s CAMP rejected: %d", GetEntityName(m_myself),
+                    static_cast<int>(nearestCampIndex));
+      }
+
+      m_navNode.Clear();
+      if (IsValidWaypoint(sourceIndex) && m_currentWaypointIndex != sourceIndex)
+        ChangeWptIndex(sourceIndex);
+      continue;
+    }
+
+    m_zhCampPointIndex = nearestCampIndex;
+    m_currentGoalIndex = nearestCampIndex;
+    if (ebot_debug.GetBool()) {
+      ServerPrint("%s CAMP found: %d", GetEntityName(m_myself),
+                  static_cast<int>(nearestCampIndex));
+    }
+    return true;
+  }
+
+  m_navNode.Clear();
+  return false;
+}
+
 void Bot::MoveTo(const Vector &targetPosition, const bool checkStuck) {
   const Vector directionOld =
       (targetPosition + pev->velocity * -m_frameInterval) -
@@ -580,7 +655,11 @@ void Bot::DoWaypointNav(void) {
     m_ladderJumpRetryDeadline = 0.0f;
     m_ladderJumpRetrySource = -1;
     m_ladderJumpRetryTarget = -1;
-    m_ladderJumpInitialPressUsed = false;
+    if (!(m_waitForLanding && IsInWater() &&
+          m_waterJumpHoldEndTime > currentTime)) {
+      m_ladderJumpInitialPressUsed = false;
+      m_waterJumpHoldEndTime = 0.0f;
+    }
   }
 
   const bool ladderJumpWindow =
@@ -691,7 +770,7 @@ void Bot::DoWaypointNav(void) {
       return;
     }
 
-    if (IsOnFloor()) {
+    if (IsOnFloor() || IsInWater()) {
       const Vector myOrigin = GetBottomOrigin(m_myself);
       Vector waypointOrigin =
           m_waypoint.origin; // directly jump to waypoint, ignore risk of fall
@@ -762,7 +841,7 @@ void Bot::DoWaypointNav(void) {
         pev->velocity.z = jumpVelocityZ;
 
         if (debugJump) {
-            ServerPrint("%s ground jump - long: %d -> %d vel(%.1f %.1f %.1f)",
+            ServerPrint("%s jump - long: %d -> %d vel(%.1f %.1f %.1f)",
                 GetEntityName(m_myself), m_currentWaypointIndex,
                 ladderJumpTargetIndex, pev->velocity.x, pev->velocity.y,
                 pev->velocity.z);
@@ -776,7 +855,7 @@ void Bot::DoWaypointNav(void) {
           pev->velocity.z = 260.0f * gravityScale;
 
           if (debugJump) {
-              ServerPrint("%s ground jump - shortUpward: %d -> %d vel(%.1f %.1f %.1f)",
+              ServerPrint("%s jump - shortUpward: %d -> %d vel(%.1f %.1f %.1f)",
                   GetEntityName(m_myself), m_currentWaypointIndex,
                   ladderJumpTargetIndex, pev->velocity.x, pev->velocity.y,
                   pev->velocity.z);
@@ -792,7 +871,7 @@ void Bot::DoWaypointNav(void) {
           pev->velocity.z = 260.0f * gravityScale;
 
           if (debugJump) {
-              ServerPrint("%s ground jump - other: %d -> %d vel(%.1f %.1f %.1f)",
+              ServerPrint("%s jump - other: %d -> %d vel(%.1f %.1f %.1f)",
                   GetEntityName(m_myself), m_currentWaypointIndex,
                   ladderJumpTargetIndex, pev->velocity.x, pev->velocity.y,
                   pev->velocity.z);
@@ -815,19 +894,23 @@ void Bot::DoWaypointNav(void) {
       m_jumpLookDeadline = m_jumpLookTargetActive ? (jumpStartTime + 3.0f) : 0.0f;
 
       const bool zombieLeap = m_isZombieBot && ebot_leap_zombies.GetBool();
-      const bool crouchTarget = (m_waypoint.flags & WAYPOINT_CROUCH) != 0;
 
       if (zombieLeap) {
-        m_duckTime = engine->GetTime() + 1.25f;
-        m_buttons |= (IN_DUCK | IN_JUMP);
-      } else {
-        m_buttons &= ~IN_JUMP;
-        if (crouchTarget) {
           m_duckTime = engine->GetTime() + 1.25f;
-          m_buttons |= IN_DUCK;
-        } else
-          m_buttons &= ~IN_DUCK;
+          m_buttons |= (IN_DUCK | IN_JUMP);
       }
+      else {
+          if (IsInWater()) {
+              m_waterJumpHoldEndTime = currentTime + 1.0f;
+              m_buttons |= IN_JUMP;
+          }
+          else {
+              m_buttons &= ~IN_JUMP;
+              m_buttons &= ~IN_DUCK;
+              m_waterJumpHoldEndTime = 0.0f;
+          }     
+      }
+
 
       TryStartDoubleJump(this, m_waypoint.origin);
       m_jumpReady = false;
@@ -846,6 +929,8 @@ void Bot::DoWaypointNav(void) {
       m_jumpLookTargetActive = false;
       m_jumpLookTarget = -1;
       m_jumpLookDeadline = 0.0f;
+      m_ladderJumpInitialPressUsed = false;
+      m_waterJumpHoldEndTime = 0.0f;
     };
 
     if (IsOnLadder()) {
@@ -863,6 +948,15 @@ void Bot::DoWaypointNav(void) {
       clearLandingWait();
       m_buttons &= ~IN_JUMP;
       return;
+    }
+
+    if (IsInWater() && m_waterJumpHoldEndTime > 0.0f) {
+      if (currentTime < m_waterJumpHoldEndTime)
+        m_buttons |= IN_JUMP;
+      else {
+        m_buttons &= ~IN_JUMP;
+        m_waterJumpHoldEndTime = 0.0f;
+      }
     }
 
     const bool landed = (IsOnFloor() || IsInWater()) && pev->velocity.z <= 5.0f;
@@ -3349,14 +3443,6 @@ void Bot::ChangeWptIndex(const int16_t waypointIndex) {
   }
 
   m_waypoint = g_waypoint->m_paths[waypointIndex];
-  if (ebot_debug.GetBool() && oldIndex != waypointIndex &&
-      (m_waypoint.flags & WAYPOINT_LADDER)) {
-    const float distToCurrentWp =
-        (pev->origin - m_waypoint.origin).GetLength();
-    ServerPrint("%s ladder current wp changed: %d -> %d (dist %.1f)",
-                GetEntityName(m_myself), oldIndex, waypointIndex,
-                distToCurrentWp);
-  }
 
   SetWaypointOrigin();
   const float speed = pev->velocity.GetLength();

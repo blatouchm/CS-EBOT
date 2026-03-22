@@ -3150,6 +3150,11 @@ inline int GetDirectDistance(const int16_t& start, const int16_t& goal)
 	return static_cast<int>(GetVectorDistanceSSE(g_waypoint->GetPath(start)->origin, g_waypoint->GetPath(goal)->origin));
 }
 
+inline int GetHeightDifference(const int16_t& start, const int16_t& goal)
+{
+	return static_cast<int>(g_waypoint->GetPath(goal)->origin.z - g_waypoint->GetPath(start)->origin.z);
+}
+
 void Waypoint::ShowWaypointMsg(void)
 {
 	if (FNullEnt(g_hostEntity))
@@ -3460,7 +3465,8 @@ void Waypoint::ShowWaypointMsg(void)
 					"	  Waypoint %d of %d, Radius: %d\n"
 					"	  Waypoint Flags: %s\n"
 					"	  Pathfinding Distance: %i\n"
-					"	  Direct Line Distance: %i\n", m_cacheWaypointIndex, g_numWaypoints, m_paths[m_cacheWaypointIndex].radius, GetWaypointInfo(m_cacheWaypointIndex), GetFacingDistance(nearestIndex, m_cacheWaypointIndex), GetDirectDistance(nearestIndex, m_cacheWaypointIndex));
+					"	  Direct Line Distance: %i\n"
+					"	  Height Difference: %+i\n", m_cacheWaypointIndex, g_numWaypoints, m_paths[m_cacheWaypointIndex].radius, GetWaypointInfo(m_cacheWaypointIndex), GetFacingDistance(nearestIndex, m_cacheWaypointIndex), GetDirectDistance(nearestIndex, m_cacheWaypointIndex), GetHeightDifference(nearestIndex, m_cacheWaypointIndex));
 
 				if (writtenChars > 0)
 				{
@@ -3484,7 +3490,8 @@ void Waypoint::ShowWaypointMsg(void)
 					"	  Waypoint %d of %d, Radius: %d\n"
 					"	  Waypoint Flags: %s\n"
 					"	  Pathfinding Distance: %i\n"
-					"	  Direct Line Distance: %i\n", m_facingAtIndex, g_numWaypoints, m_paths[m_facingAtIndex].radius, GetWaypointInfo(m_facingAtIndex), GetFacingDistance(nearestIndex, m_facingAtIndex), GetDirectDistance(nearestIndex, m_facingAtIndex));
+					"	  Direct Line Distance: %i\n"
+					"	  Height Difference: %+i\n", m_facingAtIndex, g_numWaypoints, m_paths[m_facingAtIndex].radius, GetWaypointInfo(m_facingAtIndex), GetFacingDistance(nearestIndex, m_facingAtIndex), GetDirectDistance(nearestIndex, m_facingAtIndex), GetHeightDifference(nearestIndex, m_facingAtIndex));
 
 				if (writtenChars > 0)
 				{
