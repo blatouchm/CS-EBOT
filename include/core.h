@@ -488,6 +488,8 @@ public:
   edict_t *m_breakableEntity{nullptr}; // pointer to breakable entity
   uint8_t m_breakableAttackStep{0};    // 0-5: 3x center, 3x travel direction
   float m_breakableAttackTime{0.0f};   // next melee attack time on breakables
+  Vector m_touchBlockOrigin{nullvec};   // origin where blocker check started
+  float m_touchBlockTime{0.0f};         // time when blocker check started
   edict_t *m_ignoreEntity{nullptr};    // pointer to entity to ignore
   edict_t *m_buttonEntity{nullptr};    // pointer to button entity
 

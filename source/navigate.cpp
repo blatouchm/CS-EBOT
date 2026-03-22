@@ -2684,15 +2684,33 @@ void Bot::CheckTouchEntity(edict_t *entity) {
     isBlocking = (!FNullEnt(tr.pHit) && tr.pHit == entity);
   }
 
-  if (!isBlocking)
+  if (!isBlocking) {
+    m_touchBlockOrigin = nullvec;
+    m_touchBlockTime = 0.0f;
+    return;
+  }
+
+  const float time2 = engine->GetTime();
+  if (m_touchBlockTime <= 0.0f) {
+    m_touchBlockOrigin = pev->origin;
+    m_touchBlockTime = time2;
+    return;
+  }
+
+  if ((pev->origin - m_touchBlockOrigin).GetLengthSquared() > squaredf(20.0f)) {
+    m_touchBlockOrigin = pev->origin;
+    m_touchBlockTime = time2;
+    return;
+  }
+
+  if (time2 - m_touchBlockTime < 1.0f)
     return;
 
   m_breakableEntity = entity;
   m_breakableOrigin = GetBoxOrigin(entity);
 
-  const float time2 = engine->GetTime();
   if (!SetProcess(Process::DestroyBreakable, "trying to destroy a breakable",
-                  false, time2 + 60.0f))
+                  false, time2 + 10.0f))
     return;
 
 

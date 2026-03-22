@@ -194,6 +194,13 @@ void Bot::UpdateProcess(void)
 		if (ebot_debug.GetBool())
 			ServerPrint("%s is cancelled %s process -> timed out.", GetEntityName(m_myself), GetProcessName(m_currentProcess));
 
+		if (m_currentProcess == Process::DestroyBreakable)
+		{
+			m_touchBlockOrigin = pev ? pev->origin : nullvec;
+			m_touchBlockTime = time2;
+			m_breakableEntity = nullptr;
+		}
+
 		EndProcess(m_currentProcess);
 
 		if (m_rememberedProcess != m_currentProcess && m_rememberedProcessTime > time2 && IsReadyForTheProcess(m_rememberedProcess))
