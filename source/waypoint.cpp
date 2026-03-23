@@ -33,6 +33,7 @@
 
 ConVar ebot_analyze_distance("ebot_analyze_grid_distance", "40");
 ConVar ebot_analyze_max_jump_height("ebot_analyze_max_jump_height", "62");
+ConVar ebot_max_jump_height("ebot_max_jump_height", "65");
 ConVar ebot_human_double_jump("ebot_human_double_jump", "0");
 ConVar ebot_zombie_double_jump("ebot_zombie_double_jump", "0");
 ConVar ebot_analyze_auto_start("ebot_analyze_auto_start", "1");
@@ -50,9 +51,9 @@ ConVar ebot_analyze_post_processing("ebot_analyze_post_processing", "2");
 // matrix calculation is detached, so guard matrix memory lifetime with a mutex.
 static tthread::mutex calcMutex{};
 
-static float GetAnalyzeJumpHeight(edict_t* entity)
+static float GetJumpHeight(edict_t* entity, ConVar& jumpHeightCvar)
 {
-	float jumpHeight = ebot_analyze_max_jump_height.GetFloat();
+	float jumpHeight = jumpHeightCvar.GetFloat();
 	if (!FNullEnt(entity) && entity->v.gravity > 0.0f)
 		jumpHeight /= entity->v.gravity;
 
@@ -69,6 +70,16 @@ static float GetAnalyzeJumpHeight(edict_t* entity)
 	}
 
 	return jumpHeight;
+}
+
+static float GetAnalyzeJumpHeight(edict_t* entity)
+{
+	return GetJumpHeight(entity, ebot_analyze_max_jump_height);
+}
+
+static float GetMaxJumpHeight(edict_t* entity)
+{
+	return GetJumpHeight(entity, ebot_max_jump_height);
 }
 
 static void StopMatrixCalculationInternal(void)
@@ -2873,7 +2884,7 @@ bool Waypoint::Reachable(edict_t* entity, const int16_t index)
 
 	if (dest.z > src.z)
 	{
-		const float jumpHeight = GetAnalyzeJumpHeight(entity);
+		const float jumpHeight = GetMaxJumpHeight(entity);
 
 		if (dest.z > src.z + jumpHeight)
 			return false;
@@ -2905,7 +2916,7 @@ bool Waypoint::IsNodeReachable(Vector src, Vector dest)
 
 	if (dest.z > src.z)
 	{
-		const float jumpHeight = GetAnalyzeJumpHeight(g_hostEntity);
+		const float jumpHeight = GetMaxJumpHeight(g_hostEntity);
 
 		if (dest.z > src.z + jumpHeight)
 			return false;
@@ -2936,8 +2947,9 @@ bool Waypoint::IsNodeReachableAnalyze(const Vector& src, const Vector& destinati
 
 	TraceResult tr;
 
-	// is dest node higher than src? (45 is max jump height)
-	if (destination.z > src.z + 44.0f)
+	// destination node cannot be above allowed analyze jump height.
+	const float jumpHeight = GetAnalyzeJumpHeight(g_hostEntity);
+	if (destination.z > src.z + jumpHeight)
 	{
 		Vector sourceNew = destination;
 		Vector destinationNew = destination;

@@ -36,8 +36,9 @@ ConVar ebot_helicopter_width("ebot_helicopter_width", "54.0");
 ConVar ebot_use_pathfinding_for_avoid("ebot_use_pathfinding_for_avoid", "1");
 ConVar ebot_leap_zombies("ebot_leap_zombies", "0");
 ConVar ebot_debug_jump("ebot_debug_jump", "0");
+ConVar ebot_use_max_jump_height_boost("ebot_use_max_jump_height_boost", "1");
 
-extern ConVar ebot_analyze_max_jump_height;
+extern ConVar ebot_max_jump_height;
 extern ConVar ebot_human_double_jump;
 extern ConVar ebot_zombie_double_jump;
 extern ConVar ebot_debug;
@@ -55,7 +56,7 @@ static inline float GetBaseJumpHeightForBot(const Bot* bot) {
     return 0.0f;
 
   const float gravity = bot->pev->gravity > 0.0f ? bot->pev->gravity : 1.0f;
-  return ebot_analyze_max_jump_height.GetFloat() / gravity;
+  return ebot_max_jump_height.GetFloat() / gravity;
 }
 
 static inline float GetMaxJumpHeightForBot(const Bot* bot) {
@@ -67,6 +68,18 @@ static inline float GetMaxJumpHeightForBot(const Bot* bot) {
     return baseJumpHeight * 2.0f;
 
   return baseJumpHeight;
+}
+
+static inline float GetJumpBoostScaleFromMaxJumpHeight(void) {
+  if (!ebot_use_max_jump_height_boost.GetBool())
+    return 1.0f;
+
+  constexpr float baselineJumpHeight = 65.0f;
+  const float configuredJumpHeight = ebot_max_jump_height.GetFloat();
+  if (configuredJumpHeight <= baselineJumpHeight)
+    return 1.0f;
+
+  return csqrtf(configuredJumpHeight / baselineJumpHeight);
 }
 
 static inline bool IsJumpLinkReachableForBot(const Vector& src, const Vector& dest,
@@ -837,11 +850,17 @@ void Bot::DoWaypointNav(void) {
           gravityFactor = 1.0f;
 
       const float gravityScale = csqrtf(gravityFactor);
+      const float jumpBoostScale = GetJumpBoostScaleFromMaxJumpHeight();
+
+      //This is more of an attempt at correct bot jumping that works on a few maps.
+      //The problem is that in the engine, the jump trajectory is influenced by where the bot is currently looking, so if it looks elsewhere even for a moment, the trajectory changes significantly.
+      //Therefore, I try to lock the view onto the target waypoint here.
+      //Additionally, jumps behave differently depending on whether the bot is on a ladder, in water, or on the ground.
 
       //There are three types of jumps from the ground: 
       // a calculated long jump (boosted velocity) 
       // a short vertical jump (without xy, with IN_DUCK + IN_FORWARD)
-      // other jumps (if vertical -> IN_DUCK + IN_FORWARD)
+      // other jumps (if calculation fails, if vertical -> IN_DUCK + IN_FORWARD)
 
       // set the bot "grenade" velocity - a calculated long jump (boosted velocity) 
       if (velocity.GetLengthSquared() > 10.0f && !shortUpwardJump) {
@@ -861,8 +880,8 @@ void Bot::DoWaypointNav(void) {
         if(longUpwardJump)
             jumpVelocityZBoost = 1.5f;
 
-        float jumpVelocityZ = velocity.z * gravityScale * 1.15f * jumpVelocityZBoost;
-        const float minJumpVelocityZ = 260.0f * gravityScale * jumpVelocityZBoost;
+        float jumpVelocityZ = velocity.z * gravityScale * 1.15f * jumpVelocityZBoost * jumpBoostScale;
+        const float minJumpVelocityZ = 260.0f * gravityScale * jumpVelocityZBoost * jumpBoostScale;
         if (jumpVelocityZ < minJumpVelocityZ)
           jumpVelocityZ = minJumpVelocityZ;
 
@@ -880,7 +899,7 @@ void Bot::DoWaypointNav(void) {
 
           pev->velocity.x = 0.0f;
           pev->velocity.y = 0.0f;
-          pev->velocity.z = 260.0f * gravityScale;
+          pev->velocity.z = 260.0f * gravityScale * jumpBoostScale;
 
           if (debugJump) {
               ServerPrint("%s jump - shortUpward: %d -> %d vel(%.1f %.1f %.1f)",
@@ -896,7 +915,7 @@ void Bot::DoWaypointNav(void) {
           pev->velocity.y = (waypointOrigin.y - myOrigin.y) *
                             (1.0f + (pev->maxspeed / 500.0f) + pev->gravity);
 
-          pev->velocity.z = 260.0f * gravityScale;
+          pev->velocity.z = 260.0f * gravityScale * jumpBoostScale;
 
           if (debugJump) {
               ServerPrint("%s jump - other: %d -> %d vel(%.1f %.1f %.1f)",
@@ -929,7 +948,12 @@ void Bot::DoWaypointNav(void) {
       }
       else {
           if (IsInWater()) {
-              m_waterJumpHoldEndTime = currentTime + 1.0f;
+              const float minWaterJumpVelocityZ = 260.0f * gravityScale * jumpBoostScale;
+              if (pev->velocity.z < minWaterJumpVelocityZ)
+                pev->velocity.z = minWaterJumpVelocityZ;
+
+              const float waterJumpHoldTime = cminf(2.5f, cmaxf(1.0f, jumpBoostScale));
+              m_waterJumpHoldEndTime = currentTime + waterJumpHoldTime;
               m_buttons |= IN_JUMP;
           }
           else {
