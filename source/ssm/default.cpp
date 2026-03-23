@@ -170,6 +170,25 @@ void Bot::DefaultUpdate(void)
 				const Path* const currentPath = g_waypoint->GetPath(m_currentWaypointIndex);
 				if (currentPath)
 				{
+					if ((currentPath->flags & WAYPOINT_LEAVE) && m_liftState != LiftState::None)
+					{
+						m_liftState = LiftState::None;
+						m_liftUsageTime = 0.0f;
+						m_liftEntity = nullptr;
+
+						m_navNode.Clear();
+
+						//find new spot
+						m_zhCampPointIndex = -1;
+						m_myMeshWaypoint = -1;
+						m_currentGoalIndex = -1;
+						if (!FindNearestValidHumanCampGoal())
+							return;
+
+						FollowPath();
+						return;
+					}
+
 					if ((currentPath->flags & WAYPOINT_LEAVE) && m_waitForLeaveWaypoint)
 					{
 						m_waitForLeaveWaypoint = false;
