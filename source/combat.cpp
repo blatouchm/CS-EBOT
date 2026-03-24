@@ -27,6 +27,7 @@
 ConVar ebot_zombie_wall_hack("ebot_zombie_wall_hack", "0");
 ConVar ebot_dark_mode("ebot_dark_mode", "0");
 ConVar ebot_human_target_max_distance("ebot_human_target_max_distance", "-1");
+ConVar ebot_zombie_random_target_percent("ebot_zombie_random_target_percent", "0");
 
 int Bot::GetNearbyFriendsNearPosition(const Vector& origin, const float radius)
 {
@@ -93,13 +94,65 @@ void Bot::FindFriendsAndEnemiens(void)
 	const float maxTargetDistance = ebot_human_target_max_distance.GetFloat();
 	const bool limitHumanTargets = !m_isZombieBot && maxTargetDistance >= 0.0f;
 	const float maxTargetDistanceSq = squaredf(maxTargetDistance);
+	const int maxClients = cmin(engine->GetMaxClients(), 32);
 	int16_t myWP = m_currentWaypointIndex;
 	if (!IsValidWaypoint(myWP))
 		myWP = g_clients[m_index].wp;
 
 	if (m_isZombieBot)
 	{
-		const bool needTarget = (!IsAlive(m_nearestEnemy) || GetTeam(m_nearestEnemy) == m_team);
+		bool needTarget = (!IsAlive(m_nearestEnemy) || GetTeam(m_nearestEnemy) == m_team);
+		edict_t* randomEnemy = nullptr;
+		if (needTarget)
+		{
+			const int randomTargetPercent = cclamp(ebot_zombie_random_target_percent.GetInt(), 0, 100);
+			if (randomTargetPercent > 0 && chanceof(randomTargetPercent))
+			{
+				int randomEnemyIndexes[32];
+				int randomEnemyCount = 0;
+				for (int i = 0; i < maxClients; ++i)
+				{
+					const Clients& randomClient = g_clients[i];
+					if (randomClient.ignore)
+						continue;
+
+					if (!(randomClient.flags & CFLAG_USED))
+						continue;
+
+					if (!(randomClient.flags & CFLAG_ALIVE))
+						continue;
+
+					if (randomClient.ent == m_myself)
+						continue;
+
+					if (!IsAlive(randomClient.ent))
+						continue;
+
+					if (randomClient.ent->v.flags & FL_NOTARGET)
+						continue;
+
+					if (randomClient.team == m_team)
+						continue;
+
+					if (IsEnemyInvincible(randomClient.ent))
+						continue;
+
+					if (IsEnemyHidden(randomClient.ent))
+						continue;
+
+					randomEnemyIndexes[randomEnemyCount++] = i;
+				}
+
+				if (randomEnemyCount > 0)
+				{
+					const int randomIndex = randomEnemyIndexes[crandomint(0, randomEnemyCount - 1)];
+					randomEnemy = g_clients[randomIndex].ent;
+					m_nearestEnemy = randomEnemy;
+					needTarget = false;
+				}
+			}
+		}
+
 		for (const Clients& client : g_clients)
 		{
 			if (client.ignore)
@@ -140,8 +193,11 @@ void Bot::FindFriendsAndEnemiens(void)
 			else
 			{
 				m_numEnemiesLeft++;
+				if (!FNullEnt(randomEnemy) && client.ent != randomEnemy)
+					continue;
+
 				distance = GetDistance(myWP, client.wp);
-				if (distance < m_enemyDistance)
+				if (client.ent == randomEnemy || distance < m_enemyDistance)
 				{
 					if (IsEnemyInvincible(client.ent))
 						continue;
@@ -162,7 +218,6 @@ void Bot::FindFriendsAndEnemiens(void)
 						m_nearestEnemy = client.ent;
 					else
 					{
-						const int maxClients = cmin(engine->GetMaxClients(), 32);
 						const int nearestEnemyIndex = ENTINDEX(m_nearestEnemy) - 1;
 						if (nearestEnemyIndex < 0 || nearestEnemyIndex >= maxClients || m_enemyDistance < GetDistance(myWP, g_clients[nearestEnemyIndex].wp))
 							m_nearestEnemy = client.ent;
@@ -610,7 +665,7 @@ void Bot::SelectBestWeapon(void)
 
 	if (!m_isSlowThink)
 		return;
-		
+
 	int i, id;
 	const WeaponSelect* selectTab = &g_weaponSelect[0];
 	int chosenWeaponIndex = -1;
@@ -627,16 +682,13 @@ void Bot::SelectBestWeapon(void)
 		}
 	}
 
+	if (chosenWeaponIndex == -1)
+		chosenWeaponIndex = GetHighestWeapon();
+
 	if (chosenWeaponIndex != -1)
 		SelectWeaponByName(selectTab[chosenWeaponIndex].weaponName);
 	else
-	{
-		chosenWeaponIndex = GetHighestWeapon();
-		if (chosenWeaponIndex != -1)
-			SelectWeaponByName(selectTab[chosenWeaponIndex].weaponName);
-		else
-			SelectWeaponByName("weapon_knife");
-	}
+		SelectWeaponByName("weapon_knife");
 }
 
 int Bot::GetHighestWeapon(void)
@@ -652,22 +704,18 @@ int Bot::GetHighestWeapon(void)
 	return -1;
 }
 
-static float wpnTimer[32]{0.0f};
 void Bot::SelectWeaponByName(const char* name)
 {
 	if (IsNullString(name))
 		return;
 
-	if (m_index < 0 || m_index >= 32)
-		return;
-
 	const float now = engine->GetTime();
-	if (wpnTimer[m_index] > now)
+	if (g_wpnTimer > now)
 		return;
 
 	if (g_isFakeCommand || g_fakeCommandTimer > now || !IsValidBot(m_myself))
 		return;
 
 	FakeClientCommand(m_myself, name);
-	wpnTimer[m_index] = now + 0.05f;
+	g_wpnTimer = now + 0.05f;
 }

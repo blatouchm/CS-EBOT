@@ -613,6 +613,9 @@ void CreatePath(char* path)
 // this is called at the start of each round
 void RoundInit(void)
 {
+	//it is global for client spam prevention
+	g_wpnTimer = 0.0f;
+
 	// auto semiclip detection
 	cvar_t* sc = g_engfuncs.pfnCVarGetPointer("semiclip");
 	if (sc && sc->value == 1.0f)
