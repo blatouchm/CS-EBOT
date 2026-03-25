@@ -939,6 +939,7 @@ void Bot::NewRound(void)
 	m_seeEnemyTime = 0.0f;
 
 	m_firePause = 0.0f;
+	m_wpnTimer = 0.0f;
 	m_jumpTime = 0.0f;
 	m_duckTime = 0.0f;
 	m_doubleJumpPending = false;

@@ -41,7 +41,6 @@ extern float g_autoPathDistance;
 extern float g_fakePingUpdate;
 extern float g_DelayTimer;
 extern float g_fakeCommandTimer;
-extern float g_wpnTimer;
 
 extern int16_t g_numWaypoints;
 extern int g_gameVersion;

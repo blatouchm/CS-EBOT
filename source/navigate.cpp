@@ -29,6 +29,7 @@ ConVar ebot_zombies_as_path_cost("ebot_zombie_count_as_path_cost", "1");
 ConVar ebot_has_semiclip("ebot_has_semiclip", "0");
 ConVar ebot_breakable_health_limit("ebot_breakable_health_limit", "3000.0");
 ConVar ebot_touch_breakable_classnames("ebot_touch_breakable_classnames", "");
+ConVar ebot_touch_breakable_block_check("ebot_touch_breakable_block_check", "0");
 ConVar ebot_force_shortest_path("ebot_force_shortest_path", "0");
 ConVar ebot_pathfinder_seed_min("ebot_pathfinder_seed_min", "0.9");
 ConVar ebot_pathfinder_seed_max("ebot_pathfinder_seed_max", "1.1");
@@ -464,6 +465,20 @@ void Bot::MoveOut(const Vector &targetPosition, const bool checkStuck) {
 
 void Bot::FollowPath(void) { m_navNode.Start(); }
 
+bool Bot::IsWaitUntilGroundBlocked(void) {
+  if (!(m_waypoint.flags & WAYPOINT_WAITUNTIL))
+    return false;
+
+  if (!IsValidWaypoint(m_currentWaypointIndex))
+    return false;
+
+  TraceResult tr;
+  const Vector origin = g_waypoint->m_paths[m_currentWaypointIndex].origin;
+  TraceLine(origin, origin - Vector(0.0f, 0.0f, 60.0f), TraceIgnore::Nothing,
+            m_myself, &tr);
+  return tr.flFraction >= 1.0f;
+}
+
 // this function is a main path navigation
 void Bot::DoWaypointNav(void) {
   m_destOrigin = m_waypointOrigin;
@@ -488,18 +503,11 @@ void Bot::DoWaypointNav(void) {
     m_destOrigin = m_waypointOrigin;
   }
 
-  auto hasGroundBelowCurrentWaypoint = [&]() -> bool {
-    TraceResult tr;
-    const Vector origin = g_waypoint->m_paths[m_currentWaypointIndex].origin;
-    TraceLine(origin, origin - Vector(0.0f, 0.0f, 60.0f), TraceIgnore::Nothing,
-              m_myself, &tr);
-    return tr.flFraction < 1.0f;
-  };
-
   // WAIT UNTIL GROUND must block any jump/fall behavior until ground appears.
-  if ((m_waypoint.flags & WAYPOINT_WAITUNTIL) &&
-      !hasGroundBelowCurrentWaypoint()) {
-    m_jumpReady = false;
+  if (IsWaitUntilGroundBlocked()) {
+    // Preserve jump intent for jump links so the bot jumps immediately once
+    // ground becomes available.
+    m_jumpReady = (m_currentTravelFlags & PATHFLAG_JUMP) != 0;
     m_waitForLanding = false;
     m_doubleJumpPending = false;
     m_doubleJumpTime = 0.0f;
@@ -2716,11 +2724,14 @@ void Bot::CheckTouchEntity(edict_t *entity) {
     return;
 
   TraceResult tr;
-  TraceLine(EyePosition(), m_destOrigin, TraceIgnore::Nothing, m_myself, &tr);
+  const int breakableTraceIgnore = ebot_has_semiclip.GetBool()
+                                       ? TraceIgnore::Monsters
+                                       : TraceIgnore::Nothing;
+  TraceLine(EyePosition(), m_destOrigin, TraceIgnore::Monsters, m_myself, &tr);
   bool isBlocking = (!FNullEnt(tr.pHit) && tr.pHit == entity);
 
   if (!isBlocking) {
-    TraceHull(EyePosition(), m_waypoint.origin, TraceIgnore::Nothing, head_hull,
+    TraceHull(EyePosition(), m_waypoint.origin, breakableTraceIgnore, head_hull,
               m_myself, &tr);
     isBlocking = (!FNullEnt(tr.pHit) && tr.pHit == entity);
   }
@@ -2732,28 +2743,33 @@ void Bot::CheckTouchEntity(edict_t *entity) {
   }
 
   const float time2 = engine->GetTime();
-  if (m_touchBlockTime <= 0.0f) {
-    m_touchBlockOrigin = pev->origin;
-    m_touchBlockTime = time2;
-    return;
+  if (ebot_touch_breakable_block_check.GetBool()) {
+    if (m_touchBlockTime <= 0.0f) {
+      m_touchBlockOrigin = pev->origin;
+      m_touchBlockTime = time2;
+      return;
+    }
+
+    if ((pev->origin - m_touchBlockOrigin).GetLengthSquared() >
+        squaredf(20.0f)) {
+      m_touchBlockOrigin = pev->origin;
+      m_touchBlockTime = time2;
+      return;
+    }
+
+    if (time2 - m_touchBlockTime < 1.0f)
+      return;
+  } else {
+    m_touchBlockOrigin = nullvec;
+    m_touchBlockTime = 0.0f;
   }
-
-  if ((pev->origin - m_touchBlockOrigin).GetLengthSquared() > squaredf(20.0f)) {
-    m_touchBlockOrigin = pev->origin;
-    m_touchBlockTime = time2;
-    return;
-  }
-
-  if (time2 - m_touchBlockTime < 1.0f)
-    return;
-
+ 
   m_breakableEntity = entity;
   m_breakableOrigin = GetBoxOrigin(entity);
 
   if (!SetProcess(Process::DestroyBreakable, "trying to destroy a breakable",
                   false, time2 + 10.0f))
     return;
-
 
   //TODO; doesn't make sense here when this entity blocks the path
  /* if (pev->origin.z > m_breakableOrigin.z) // make bots smarter

@@ -675,6 +675,7 @@ public:
 
   bool m_isSlowThink{false}; // bool for check is slow think? (every second)
   float m_firePause{0.0f};   // time to pause firing
+  float m_wpnTimer{0.0f};    // per-bot weapon switch spam guard
 
   int m_currentWeapon{0}; // one current weapon for each bot
   int m_ammoInClip[Const_MaxWeapons + 1]{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -763,6 +764,7 @@ public:
   bool IsEnemyViewable(edict_t *player);
   bool IsInfectedDelay(void);
   bool CheckWaypoint(void);
+  bool IsWaitUntilGroundBlocked(void);
 
   void CheckStuck(const Vector &directionNormal, const float finterval);
   void ResetStuck(void);

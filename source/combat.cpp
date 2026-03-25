@@ -710,12 +710,12 @@ void Bot::SelectWeaponByName(const char* name)
 		return;
 
 	const float now = engine->GetTime();
-	if (g_wpnTimer > now)
+	if (m_wpnTimer > now)
 		return;
 
 	if (g_isFakeCommand || g_fakeCommandTimer > now || !IsValidBot(m_myself))
 		return;
 
 	FakeClientCommand(m_myself, name);
-	g_wpnTimer = now + 0.05f;
+	m_wpnTimer = now + 0.05f;
 }

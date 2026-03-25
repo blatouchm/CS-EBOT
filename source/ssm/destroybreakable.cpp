@@ -20,6 +20,7 @@ void Bot::DestroyBreakableUpdate(void)
 		m_breakableEntity->v.health = -1.0f;
 
 	const float time = engine->GetTime();
+
 	Vector lookTarget = m_breakableOrigin;
 	if (m_breakableAttackStep >= 3)
 	{

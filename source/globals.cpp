@@ -41,7 +41,6 @@ float g_autoPathDistance = 250.0f;
 float g_fakePingUpdate = 0.0f;
 float g_DelayTimer = 0.0f;
 float g_fakeCommandTimer = 0.0f;
-float g_wpnTimer = 0.0f;
 
 int g_storeAddbotVars[4];
 int g_fakeArgc = 0;

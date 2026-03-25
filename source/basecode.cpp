@@ -36,6 +36,7 @@ ConVar ebot_use_grenade_percent("ebot_use_grenade_percent", "60");
 ConVar ebot_check_enemy_rendering("ebot_check_enemy_rendering", "0");
 ConVar ebot_check_enemy_invincibility("ebot_check_enemy_invincibility", "0");
 ConVar ebot_aim_trace_consider_glass("ebot_aim_trace_consider_glass", "0");
+ConVar ebot_human_help_breakables("ebot_human_help_breakables", "1");
 
 float Bot::InFieldOfView(const Vector &destination) {
   const float absoluteAngle =
@@ -831,6 +832,11 @@ void Bot::CheckSlowThink(void) {
   if (m_isZombieBot)
     SelectKnife();
   else {
+    extern ConVar ebot_has_semiclip;
+    const int breakableTraceIgnore = ebot_has_semiclip.GetBool()
+                                         ? TraceIgnore::Monsters
+                                         : TraceIgnore::Nothing;
+
     const bool atHumanCamp =
         IsValidWaypoint(m_currentWaypointIndex) &&
         (m_currentWaypointIndex == m_zhCampPointIndex ||
@@ -884,6 +890,51 @@ void Bot::CheckSlowThink(void) {
           SelectBestWeapon();
         else if (m_navNode.CanFollowPath() && m_navNode.HasNext())
           SelectKnife();
+      }
+    }
+
+    if (ebot_human_help_breakables.GetBool() && m_isAlive &&
+        (GetCurrentState() == Process::Default ||
+                      GetCurrentState() == Process::Pause)) {
+      for (Bot *const &bot : g_botManager->m_bots) {
+        if (!bot || bot == this)
+          continue;
+
+        if (FNullEnt(bot->m_myself) || !bot->pev)
+          continue;
+
+        if (!bot->m_isAlive || bot->m_isZombieBot || bot->m_team != m_team)
+          continue;
+
+        if (bot->GetCurrentState() != Process::DestroyBreakable ||
+            !bot->DestroyBreakableReq())
+          continue;
+
+        if (FNullEnt(bot->m_breakableEntity) ||
+            (pev->origin - bot->pev->origin).GetLengthSquared() >
+                squaredf(150.0f))
+          continue;
+
+        if (m_ignoreEntity == bot->m_breakableEntity)
+          continue;
+
+        TraceResult tr;
+        TraceResult tr2;
+        const Vector breakableOrigin = GetBoxOrigin(bot->m_breakableEntity);
+        TraceHull(EyePosition(), breakableOrigin, breakableTraceIgnore, point_hull,
+                  m_myself, &tr);
+        TraceHull(pev->origin, breakableOrigin, breakableTraceIgnore, head_hull,
+                  m_myself, &tr2);
+
+        if ((!FNullEnt(tr.pHit) && tr.pHit == bot->m_breakableEntity) ||
+            (!FNullEnt(tr2.pHit) && tr2.pHit == bot->m_breakableEntity)) {
+          m_breakableEntity = bot->m_breakableEntity;
+          m_breakableOrigin = breakableOrigin;
+          if (SetProcess(Process::DestroyBreakable,
+                         "helping nearby human destroy same breakable", false,
+                         tempTimer + 10.0f))
+            break;
+        }
       }
     }
   }
@@ -1025,10 +1076,15 @@ void Bot::UpdateLooking(void) {
   // This must have priority over combat look logic.
   const bool jumpLookLockActive =
       m_jumpLookTargetActive && m_jumpLookDeadline > currentTime;
+  bool allowCombatDuringWaitUntilJump = false;
+  if ((m_currentTravelFlags & PATHFLAG_JUMP) &&
+      (m_waypoint.flags & WAYPOINT_WAITUNTIL))
+    allowCombatDuringWaitUntilJump = IsWaitUntilGroundBlocked();
+
   if (!IsOnLadder() &&
       (jumpLookLockActive || (m_currentTravelFlags & PATHFLAG_JUMP) ||
-       m_waitForLanding ||
-       m_jumpReady)) {
+       m_waitForLanding || m_jumpReady) &&
+      !allowCombatDuringWaitUntilJump) {
     m_updateLooking = true;
     m_lookVelocity = nullvec;
 
