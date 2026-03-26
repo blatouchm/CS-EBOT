@@ -866,30 +866,23 @@ void Bot::DoWaypointNav(void) {
       //Additionally, jumps behave differently depending on whether the bot is on a ladder, in water, or on the ground.
 
       //There are three types of jumps from the ground: 
-      // a calculated long jump (boosted velocity) 
-      // a short vertical jump (without xy, with IN_DUCK + IN_FORWARD)
+      // a calculated jump - a short jump should have lower velocity than a long jump (capped), so that the bot lands in the correct spot
+      // a short vertical jump (without xy, with IN_DUCK + IN_FORWARD) - for example from the ground onto a box
       // other jumps (if calculation fails, if vertical -> IN_DUCK + IN_FORWARD)
+      // (outside of this part, the bot also attempts a stuck jump when it thinks it is stuck, and that is calculated differently)
 
-      // set the bot "grenade" velocity - a calculated long jump (boosted velocity) 
+      // set the bot "grenade" velocity - a calculated long jump
       if (velocity.GetLengthSquared() > 10.0f && !shortUpwardJump) {
 
-        const bool longUpwardJump =
-              jumpingToHigherWaypoint &&
-              (m_waypoint.origin - sourceWaypointOrigin).GetLengthSquared() >
-              squaredf(100.0f);
+        const Vector jumpDelta = waypointOrigin - myOrigin;
+        const float jumpDistance2D = csqrtf((jumpDelta.x * jumpDelta.x) + (jumpDelta.y * jumpDelta.y));
+        const float jumpDistanceScale = cminf(2.0f, cmaxf(1.15f, jumpDistance2D / 110.0f));
 
-        const float jumpVelocityXYBoost = 1.0f;
-        float jumpVelocityZBoost = 1.2f;
+        pev->velocity.x = velocity.x * jumpDistanceScale;
+        pev->velocity.y = velocity.y * jumpDistanceScale;
 
-        pev->velocity.x = velocity.x * jumpVelocityXYBoost;
-        pev->velocity.y = velocity.y * jumpVelocityXYBoost;
-
-        //needed for long jump to higher ladder etc.
-        if(longUpwardJump)
-            jumpVelocityZBoost = 1.5f;
-
-        float jumpVelocityZ = velocity.z * gravityScale * 1.15f * jumpVelocityZBoost * jumpBoostScale;
-        const float minJumpVelocityZ = 260.0f * gravityScale * jumpVelocityZBoost * jumpBoostScale;
+        float jumpVelocityZ = velocity.z * gravityScale * jumpDistanceScale;
+        const float minJumpVelocityZ = 260.0f * gravityScale * jumpDistanceScale * jumpBoostScale;
         if (jumpVelocityZ < minJumpVelocityZ)
           jumpVelocityZ = minJumpVelocityZ;
 
@@ -907,7 +900,7 @@ void Bot::DoWaypointNav(void) {
 
           pev->velocity.x = 0.0f;
           pev->velocity.y = 0.0f;
-          pev->velocity.z = 260.0f * gravityScale * jumpBoostScale;
+          pev->velocity.z = 260.0f * 1.2f * gravityScale * jumpBoostScale;
 
           if (debugJump) {
               ServerPrint("%s jump - shortUpward: %d -> %d vel(%.1f %.1f %.1f)",
@@ -916,7 +909,7 @@ void Bot::DoWaypointNav(void) {
                   pev->velocity.z);
           }
 
-        } else { //other jumps 
+        } else { //if calculation fails
 
           pev->velocity.x = (waypointOrigin.x - myOrigin.x) *
                             (1.0f + (pev->maxspeed / 500.0f) + pev->gravity);
