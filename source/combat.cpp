@@ -28,6 +28,34 @@ ConVar ebot_zombie_wall_hack("ebot_zombie_wall_hack", "0");
 ConVar ebot_dark_mode("ebot_dark_mode", "0");
 ConVar ebot_human_target_max_distance("ebot_human_target_max_distance", "-1");
 ConVar ebot_zombie_random_target_percent("ebot_zombie_random_target_percent", "0");
+ConVar ebot_human_block_knife_switch("ebot_human_block_knife_switch", "1");
+
+static inline bool HasUsableHumanFirearm(const Bot* bot)
+{
+	if (!bot || !bot->pev)
+		return false;
+
+	const int weapons = bot->pev->weapons & (WeaponBits_Primary | WeaponBits_Secondary);
+	if (!weapons)
+		return false;
+
+	const WeaponSelect* selectTab = &g_weaponSelect[0];
+	for (int i = Const_NumWeapons; i; i--)
+	{
+		const int id = selectTab[i].id;
+		if (!(weapons & (1 << id)))
+			continue;
+
+		if (bot->m_ammoInClip[id] > 0)
+			return true;
+
+		const int ammoIndex = g_weaponDefs[id].ammo1;
+		if (ammoIndex >= 0 && ammoIndex <= Const_MaxWeapons && bot->m_ammo[ammoIndex] > 0)
+			return true;
+	}
+
+	return false;
+}
 
 int Bot::GetNearbyFriendsNearPosition(const Vector& origin, const float radius)
 {
@@ -649,6 +677,10 @@ int Bot::CheckGrenades(void)
 void Bot::SelectKnife(void)
 {
 	if (m_currentWeapon == Weapon::Knife)
+		return;
+
+	if (!m_isZombieBot && ebot_human_block_knife_switch.GetBool() &&
+		HasUsableHumanFirearm(this))
 		return;
 
 	SelectWeaponByName("weapon_knife");
