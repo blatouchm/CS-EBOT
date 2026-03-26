@@ -865,8 +865,11 @@ void Bot::CheckSlowThink(void) {
              !(m_buttons & IN_ATTACK) && !(m_oldButtons & IN_ATTACK)) {
       m_isEnemyReachable = false;
       if (crandomint(1, 3) != 1) {
-        if (!(m_buttons & IN_RELOAD) && !(m_oldButtons & IN_RELOAD))
+        if (m_randomReloadTimer < tempTimer &&
+            !(m_buttons & IN_RELOAD) && !(m_oldButtons & IN_RELOAD)) {
           m_buttons |= IN_RELOAD;
+          m_randomReloadTimer = tempTimer + 15.0f;
+        }
       } else {
         WeaponSelect *selectTab = &g_weaponSelect[0];
         int i, id;

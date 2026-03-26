@@ -940,6 +940,7 @@ void Bot::NewRound(void)
 
 	m_firePause = 0.0f;
 	m_wpnTimer = 0.0f;
+	m_randomReloadTimer = 0.0f;
 	m_jumpTime = 0.0f;
 	m_duckTime = 0.0f;
 	m_doubleJumpPending = false;

@@ -676,6 +676,7 @@ public:
   bool m_isSlowThink{false}; // bool for check is slow think? (every second)
   float m_firePause{0.0f};   // time to pause firing
   float m_wpnTimer{0.0f};    // per-bot weapon switch spam guard
+  float m_randomReloadTimer{0.0f}; // cooldown for random reload without enemies
 
   int m_currentWeapon{0}; // one current weapon for each bot
   int m_ammoInClip[Const_MaxWeapons + 1]{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
