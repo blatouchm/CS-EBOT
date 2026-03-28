@@ -482,6 +482,15 @@ bool Bot::IsWaitUntilGroundBlocked(void) {
 // this function is a main path navigation
 void Bot::DoWaypointNav(void) {
   m_destOrigin = m_waypointOrigin;
+  auto isNearCurrentWaypoint = [&]() -> bool {
+    if (!IsValidWaypoint(m_currentWaypointIndex))
+      return false;
+
+    const float reachRadius =
+        cmaxf(static_cast<float>(m_waypoint.radius), 24.0f);
+    return (pev->origin - m_waypoint.origin).GetLengthSquared() <=
+           squaredf(reachRadius);
+  };
 
   // Guard against invalid current waypoint index before any direct
   // g_waypoint->m_paths[m_currentWaypointIndex] access below.
@@ -507,7 +516,8 @@ void Bot::DoWaypointNav(void) {
   if (IsWaitUntilGroundBlocked()) {
     // Preserve jump intent for jump links so the bot jumps immediately once
     // ground becomes available.
-    m_jumpReady = (m_currentTravelFlags & PATHFLAG_JUMP) != 0;
+    m_jumpReady = ((m_currentTravelFlags & PATHFLAG_JUMP) != 0) &&
+                  !isNearCurrentWaypoint();
     m_waitForLanding = false;
     m_doubleJumpPending = false;
     m_doubleJumpTime = 0.0f;
@@ -812,14 +822,18 @@ void Bot::DoWaypointNav(void) {
     m_buttons |= IN_JUMP;
 
   if (m_jumpReady && !m_waitForLanding) {
-    if (IsOnLadder()) {
+    if ((m_currentTravelFlags & PATHFLAG_JUMP) && isNearCurrentWaypoint()) {
+      m_jumpReady = false;
+    }
+
+    if (m_jumpReady && IsOnLadder()) {
       m_buttons &= ~IN_JUMP;
       m_jumpReady = false;
       m_waitForLanding = false;
       return;
     }
 
-    if (IsOnFloor() || IsInWater()) {
+    if (m_jumpReady && (IsOnFloor() || IsInWater())) {
       const Vector myOrigin = GetBottomOrigin(m_myself);
       Vector waypointOrigin =
           m_waypoint.origin; // directly jump to waypoint, ignore risk of fall
@@ -3024,6 +3038,10 @@ void Bot::CheckStuck(const Vector &directionNormal, const float finterval) {
     return;
   }
 
+  const int stuckTraceIgnore = ebot_has_semiclip.GetBool()
+                                   ? TraceIgnore::Monsters
+                                   : TraceIgnore::Nothing;
+
   if (m_prevTime < engine->GetTime()) {
     m_isStuck = false;
 
@@ -3253,14 +3271,14 @@ void Bot::CheckStuck(const Vector &directionNormal, const float finterval) {
           src = pev->origin + g_pGlobals->v_right * 52.0f;
           dest = src + testDir * 52.0f;
 
-          TraceHull(src, dest, TraceIgnore::Nothing, head_hull, m_myself, &tr);
+          TraceHull(src, dest, stuckTraceIgnore, head_hull, m_myself, &tr);
           if (tr.flFraction < 1.0f)
             blockedRight = true;
 
           src = pev->origin - g_pGlobals->v_right * 52.0f;
           dest = src + testDir * 52.0f;
 
-          TraceHull(src, dest, TraceIgnore::Nothing, head_hull, m_myself, &tr);
+          TraceHull(src, dest, stuckTraceIgnore, head_hull, m_myself, &tr);
           if (tr.flFraction < 1.0f)
             blockedLeft = true;
 
@@ -3298,13 +3316,13 @@ void Bot::CheckStuck(const Vector &directionNormal, const float finterval) {
             src = EyePosition();
             src = src + g_pGlobals->v_right * 15.0f;
 
-            TraceHull(src, m_destOrigin, TraceIgnore::Nothing, point_hull,
+            TraceHull(src, m_destOrigin, stuckTraceIgnore, point_hull,
                       m_myself, &tr);
             if (tr.flFraction >= 1.0f) {
               src = EyePosition();
               src = src - g_pGlobals->v_right * 15.0f;
 
-              TraceHull(src, m_destOrigin, TraceIgnore::Nothing, point_hull,
+              TraceHull(src, m_destOrigin, stuckTraceIgnore, point_hull,
                         m_myself, &tr);
               if (tr.flFraction >= 1.0f)
                 state[i] += 5;
@@ -3317,7 +3335,7 @@ void Bot::CheckStuck(const Vector &directionNormal, const float finterval) {
             src = pev->origin + Vector(0.0f, 0.0f, -17.0f);
 
           dest = src + directionNormal * 30.0f;
-          TraceHull(src, dest, TraceIgnore::Nothing, point_hull, m_myself, &tr);
+          TraceHull(src, dest, stuckTraceIgnore, point_hull, m_myself, &tr);
 
           if (tr.flFraction < 1.0f)
             state[i] += 10;
@@ -3593,12 +3611,14 @@ bool Bot::CantMoveForward(const Vector &normal) {
   const Vector eyePosition = EyePosition();
   Vector src = eyePosition;
   Vector forward = src + normal * 24.0f;
+  const int traceIgnore = ebot_has_semiclip.GetBool() ? TraceIgnore::Monsters
+                                                       : TraceIgnore::Nothing;
 
   MakeVectors(Vector(0.0f, pev->angles.y, 0.0f));
   TraceResult tr;
 
   // trace from the bot's eyes straight forward...
-  TraceLine(src, forward, TraceIgnore::Nothing, m_myself, &tr);
+  TraceLine(src, forward, traceIgnore, m_myself, &tr);
 
   // check if the trace hit something...
   if (tr.flFraction < 1.0f) {
@@ -3615,7 +3635,7 @@ bool Bot::CantMoveForward(const Vector &normal) {
   forward = eyePosition + Vector(0.0f, 0.0f, -16.0f) +
             g_pGlobals->v_right * 16.0f + normal * 24.0f;
 
-  TraceLine(src, forward, TraceIgnore::Nothing, m_myself, &tr);
+  TraceLine(src, forward, traceIgnore, m_myself, &tr);
 
   // check if the trace hit something...
   if (tr.flFraction < 1.0f &&
@@ -3629,7 +3649,7 @@ bool Bot::CantMoveForward(const Vector &normal) {
   forward = eyePosition + Vector(0.0f, 0.0f, -16.0f) -
             g_pGlobals->v_right * 16.0f + normal * 24.0f;
 
-  TraceLine(src, forward, TraceIgnore::Nothing, m_myself, &tr);
+  TraceLine(src, forward, traceIgnore, m_myself, &tr);
 
   // check if the trace hit something...
   if (tr.flFraction < 1.0f &&
@@ -3641,7 +3661,7 @@ bool Bot::CantMoveForward(const Vector &normal) {
     src = pev->origin + Vector(0.0f, 0.0f, -19.0f + 19.0f);
     forward = src + Vector(0.0f, 0.0f, 10.0f) + normal * 24.0f;
 
-    TraceLine(src, forward, TraceIgnore::Nothing, m_myself, &tr);
+    TraceLine(src, forward, traceIgnore, m_myself, &tr);
 
     // check if the trace hit something...
     if (tr.flFraction < 1.0f &&
@@ -3651,7 +3671,7 @@ bool Bot::CantMoveForward(const Vector &normal) {
     src = pev->origin;
     forward = src + normal * 24.0f;
 
-    TraceLine(src, forward, TraceIgnore::Nothing, m_myself, &tr);
+    TraceLine(src, forward, traceIgnore, m_myself, &tr);
 
     // check if the trace hit something...
     if (tr.flFraction < 1.0f &&
@@ -3665,7 +3685,7 @@ bool Bot::CantMoveForward(const Vector &normal) {
               g_pGlobals->v_right * 16.0f + normal * 24.0f;
 
     // trace from the bot's waist straight forward...
-    TraceLine(src, forward, TraceIgnore::Nothing, m_myself, &tr);
+    TraceLine(src, forward, traceIgnore, m_myself, &tr);
 
     // check if the trace hit something...
     if (tr.flFraction < 1.0f &&
@@ -3678,7 +3698,7 @@ bool Bot::CantMoveForward(const Vector &normal) {
     forward = pev->origin + Vector(0.0f, 0.0f, -17.0f) -
               g_pGlobals->v_right * 16.0f + normal * 24.0f;
 
-    TraceLine(src, forward, TraceIgnore::Nothing, m_myself, &tr);
+    TraceLine(src, forward, traceIgnore, m_myself, &tr);
 
     // check if the trace hit something...
     if (tr.flFraction < 1.0f &&

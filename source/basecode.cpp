@@ -30,6 +30,7 @@
 ConVar ebot_debug("ebot_debug", "0");
 
 ConVar ebot_stopbots("ebot_stop_bots", "0");
+ConVar ebot_stopzombiebots("ebot_stop_zombie_bots", "0");
 ConVar ebot_force_flashlight("ebot_force_flashlight", "0");
 ConVar ebot_use_flare("ebot_use_flares", "1");
 ConVar ebot_use_grenade_percent("ebot_use_grenade_percent", "60");
@@ -585,7 +586,10 @@ void Bot::BaseUpdate(void) {
       StartGame();
     else {
       if (m_isAlive) {
-        if (!ebot_stopbots.GetBool()) {
+        const bool stopThisBot =
+            ebot_stopbots.GetBool() ||
+            (m_isZombieBot && ebot_stopzombiebots.GetBool());
+        if (!stopThisBot) {
           DebugModeMsg();
           m_moveSpeed = 0.0f;
           m_strafeSpeed = 0.0f;
