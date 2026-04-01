@@ -175,7 +175,7 @@ E-Bot Main Menu
       6. Camping - add camp waypoint
       7. Helicopter - add button/elevator-type waypoint
       8. Map Goal - add goal waypoint
-      9. Jump - start learn-jump waypoint placement
+      9. Jump - start learn-jump waypoint placement (experimental)
       0. Exit - close menu
 
       Toggle Waypoint Flags (Page 1/3)
@@ -207,6 +207,9 @@ E-Bot Main Menu
       2. Only One Bot - toggle one-bot-only flag
       3. Wait Until Ground - toggle wait-until-ground flag
       4. Avoid - toggle avoid flag
+      5. Leave (Release Wait) - toggle leave flag (release WAIT hold behavior)
+      6. Wait (Until Leave) - toggle wait flag (hold until bot reaches LEAVE waypoint)
+      7. Zombie Boost - toggle zombie boost (double-jump) flag
       8. Previous... - to page 2
       9. Next... - to page 1
       0. Exit - close menu
@@ -336,4 +339,3 @@ Autowaypoint commands:
 
 Notes:
 - A few legacy names printed by old help text can be no-op in this branch.
-
