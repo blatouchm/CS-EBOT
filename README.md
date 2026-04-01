@@ -25,16 +25,17 @@ Forked from [EfeDursun125/CS-EBOT](https://github.com/EfeDursun125/CS-EBOT)
 6. (For Linux) Add that line "linux addons/ebot/dlls/ebot.so" and save it.
 
 
-Required glibc 2.19+ on Linux
+**Required glibc 2.19+ on Linux**
 
 **tested on linux dedicated server with:** rehlds and metamod-r
-ReHLDS-3.14.0.857
-Metamod-r v1.3.0.149, API (5:13)
-Metamod-r build: 11:31:17 Apr 23 2024
+
+    ReHLDS-3.14.0.857
+    Metamod-r v1.3.0.149, API (5:13)
+    Metamod-r build: 11:31:17 Apr 23 2024
 
 **tested on windows listen server with:** metamod-p
-Metamod v1.21p37  2013/05/30 (5:13)
 
+    Metamod v1.21p37  2013/05/30 (5:13)
 
 
 # How to use - local listen server (client)
