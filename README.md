@@ -1,20 +1,20 @@
 # CS 1.6 E-BOT !
 AI Bot for Counter-Strike based on SyPB, this bot is only for zombie plague/escape and biohazard gamemodes.
 
-You can try bots on this public Counter-Strike 1.6 servers:<br> 
-csko.cz:27017  (custom zombie based on zombie plague, maps are in fog or partial darkness)<br>
-csko.cz:27031  (olschool zombie plague 4.3, maps are in complete darkness)<br>
-csko.cz:27070  (zombie escape)<br>
+### Try bots on public Counter-Strike 1.6 servers
 
-Forked from [EfeDursun125/CS-EBOT](https://github.com/EfeDursun125/CS-EBOT)
+- `csko.cz:27017` — custom zombie based on Zombie Plague (maps are in fog or partial darkness)
+- `csko.cz:27031` — Zombie Plague 4.3 (complete darkness)  
+- `csko.cz:27070` — zombie escape
 
+  
+<br>
 
 [Click HERE To Join E-BOT Discord Community](http://discord.gg/v7PesBamXt)
 
 [Click HERE To Join E-BOT Steam Community](https://steamcommunity.com/groups/E125G)
 
-[Please Download From The Blog For Support This Project](https://ebots-for-cs.blogspot.com/)
-
+<br>
 
 # How to install
 1. Download & install metamod if you dont have.
