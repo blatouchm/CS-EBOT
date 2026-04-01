@@ -958,7 +958,7 @@ void Bot::DoWaypointNav(void) {
       const bool zombieLeap = m_isZombieBot && ebot_leap_zombies.GetBool();
 
       if (zombieLeap) {
-          m_duckTime = engine->GetTime() + 1.25f;
+          m_duckTime = engine->GetTime() + 0.25f;
           m_buttons |= (IN_DUCK | IN_JUMP);
       }
       else {
