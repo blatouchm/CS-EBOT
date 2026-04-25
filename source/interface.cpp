@@ -323,6 +323,8 @@ int BotCommandHandler_O(edict_t* ent, const char* arg0, const char* arg1, const 
 	// waypoint manimupulation (really obsolete, can be edited through menu) (supported only on listen server)
 	else if (!cstricmp(arg0, "waypoint") || !cstricmp(arg0, "wp") || !cstricmp(arg0, "wpt"))
 	{
+		edict_t* editor = IsValidPlayer(ent) ? ent : g_hostEntity;
+
 		// enables or disable waypoint displaying
 		if (!cstricmp(arg1, "analyze"))
 		{
@@ -366,7 +368,6 @@ int BotCommandHandler_O(edict_t* ent, const char* arg0, const char* arg1, const 
 		// enables noclip cheat
 		else if (!cstricmp(arg1, "noclip"))
 		{
-			edict_t* editor = FNullEnt(g_hostEntity) ? ent : g_hostEntity;
 			if (g_editNoclip)
 			{
 				if (!FNullEnt(editor))
@@ -386,7 +387,6 @@ int BotCommandHandler_O(edict_t* ent, const char* arg0, const char* arg1, const 
 		// switching waypoint editing off
 		else if (!cstricmp(arg1, "off"))
 		{
-			edict_t* editor = FNullEnt(g_hostEntity) ? ent : g_hostEntity;
 			g_waypointOn = false;
 			g_editNoclip = false;
 			if (!FNullEnt(editor))
@@ -433,12 +433,12 @@ int BotCommandHandler_O(edict_t* ent, const char* arg0, const char* arg1, const 
 		else if (!cstricmp(arg1, "add"))
 		{
 			g_waypointOn = true;  // turn waypoints on
-			const int hostIndex = ENTINDEX(g_hostEntity) - 1;
+			const int hostIndex = ENTINDEX(editor) - 1;
 			const int maxClients = cmin(engine->GetMaxClients(), 32);
 			if (hostIndex >= 0 && hostIndex < maxClients)
 				g_clients[hostIndex].wpMenuBack = &g_menus[9];
 
-			DisplayMenuToClient(g_hostEntity, &g_menus[12]);
+			DisplayMenuToClient(editor, &g_menus[12]);
 		}
 
 		// sets mesh for waypoint
@@ -448,7 +448,7 @@ int BotCommandHandler_O(edict_t* ent, const char* arg0, const char* arg1, const 
 				ClientPrint(ent, print_withtag, "Please set mesh <number>, min 0, max 255");
 			else
 			{
-				const int16_t index = g_waypoint->FindNearestSlow(GetEntityOrigin(g_hostEntity), 75.0f);
+				const int16_t index = g_waypoint->FindNearestSlow(GetEntityOrigin(editor), 75.0f);
 				if (IsValidWaypoint(index))
 				{
 					g_waypoint->GetPath(index)->mesh = static_cast<uint8_t>(cabsf(catof(arg2)));
@@ -466,7 +466,7 @@ int BotCommandHandler_O(edict_t* ent, const char* arg0, const char* arg1, const 
 				ClientPrint(ent, print_withtag, "Please set gravity <number>");
 			else
 			{
-				const int16_t index = g_waypoint->FindNearestSlow(GetEntityOrigin(g_hostEntity), 75.0f);
+				const int16_t index = g_waypoint->FindNearestSlow(GetEntityOrigin(editor), 75.0f);
 				if (IsValidWaypoint(index))
 				{
 					g_waypoint->GetPath(index)->gravity = cabsf(catof(arg2));
@@ -519,12 +519,12 @@ int BotCommandHandler_O(edict_t* ent, const char* arg0, const char* arg1, const 
 		// opens menu for setting (removing) waypoint flags
 		else if (!cstricmp(arg1, "flags"))
 		{
-			const int hostIndex = ENTINDEX(g_hostEntity) - 1;
+			const int hostIndex = ENTINDEX(editor) - 1;
 			const int maxClients = cmin(engine->GetMaxClients(), 32);
 			if (hostIndex >= 0 && hostIndex < maxClients)
 				g_clients[hostIndex].wpMenuBack = &g_menus[10];
 
-			DisplayMenuToClient(g_hostEntity, &g_menus[13]);
+			DisplayMenuToClient(editor, &g_menus[13]);
 		}
 
 		// setting waypoint radius
@@ -541,10 +541,10 @@ int BotCommandHandler_O(edict_t* ent, const char* arg0, const char* arg1, const 
 			const int16_t teleportPoint = catoi16(arg2);
 			if (teleportPoint < g_numWaypoints)
 			{
-				g_engfuncs.pfnSetOrigin(g_hostEntity, g_waypoint->GetPath(teleportPoint)->origin);
+				g_engfuncs.pfnSetOrigin(editor, g_waypoint->GetPath(teleportPoint)->origin);
 				g_waypointOn = true;
 
-				ServerPrint("Player '%s' teleported to waypoint #%d (x:%.1f, y:%.1f, z:%.1f)", GetEntityName(g_hostEntity), teleportPoint, g_waypoint->GetPath(teleportPoint)->origin.x, g_waypoint->GetPath(teleportPoint)->origin.y, g_waypoint->GetPath(teleportPoint)->origin.z);
+				ServerPrint("Player '%s' teleported to waypoint #%d (x:%.1f, y:%.1f, z:%.1f)", GetEntityName(editor), teleportPoint, g_waypoint->GetPath(teleportPoint)->origin.x, g_waypoint->GetPath(teleportPoint)->origin.y, g_waypoint->GetPath(teleportPoint)->origin.z);
 				g_editNoclip = true;
 			}
 		}
@@ -552,12 +552,12 @@ int BotCommandHandler_O(edict_t* ent, const char* arg0, const char* arg1, const 
 		// displays waypoint menu
 		else if (!cstricmp(arg1, "menu"))
 		{
-			const int hostIndex = ENTINDEX(g_hostEntity) - 1;
+			const int hostIndex = ENTINDEX(editor) - 1;
 			const int maxClients = cmin(engine->GetMaxClients(), 32);
 			if (hostIndex >= 0 && hostIndex < maxClients)
 				g_clients[hostIndex].wpMenuBack = nullptr;
 
-			DisplayMenuToClient(g_hostEntity, &g_menus[9]);
+			DisplayMenuToClient(editor, &g_menus[9]);
 		}
 
 		// otherwise display waypoint current status
@@ -1032,25 +1032,27 @@ void ClientCommand(edict_t* ent)
 	const char* arg1 = CMD_ARGV(1);
 	const bool hasControlAccess = (ent == g_hostEntity || (g_clients[clientIndex].flags & CFLAG_OWNER));
 
-	if (!g_isFakeCommand && !cstricmp(command, "ebot"))
-	{
-		if (!hasControlAccess)
+		if (!g_isFakeCommand && !cstricmp(command, "ebot"))
 		{
-			ClientPrint(ent, print_console, "You have no access to ebot commands on this server.");
+			if (!hasControlAccess)
+			{
+				ClientPrint(ent, print_console, "You have no access to ebot commands on this server.");
+				RETURN_META(MRES_SUPERCEDE);
+			}
+
+			const char* subCommand = (CMD_ARGC() < 2 || IsNullString(CMD_ARGV(1))) ? "help" : CMD_ARGV(1);
+			g_hostEntity = ent; // make waypoint operations use the player who issued command
+			BotCommandHandler(ent, subCommand, CMD_ARGV(2), CMD_ARGV(3), CMD_ARGV(4), CMD_ARGV(5), CMD_ARGV(6));
 			RETURN_META(MRES_SUPERCEDE);
 		}
 
-		const char* subCommand = (CMD_ARGC() < 2 || IsNullString(CMD_ARGV(1))) ? "help" : CMD_ARGV(1);
-		BotCommandHandler(ent, subCommand, CMD_ARGV(2), CMD_ARGV(3), CMD_ARGV(4), CMD_ARGV(5), CMD_ARGV(6));
-		RETURN_META(MRES_SUPERCEDE);
-	}
-
-	if (!g_isFakeCommand && hasControlAccess)
-	{
-		if (!cstricmp(command, "menuselect") && !IsNullString(arg1) && g_clients[clientIndex].menu)
+		if (!g_isFakeCommand && hasControlAccess)
 		{
-			Clients* client = &g_clients[clientIndex];
-			const int selection = catoi(arg1);
+			if (!cstricmp(command, "menuselect") && !IsNullString(arg1) && g_clients[clientIndex].menu)
+			{
+				g_hostEntity = ent; // bind menu actions (wp add/delete/flags/path) to menu owner
+				Clients* client = &g_clients[clientIndex];
+				const int selection = catoi(arg1);
 			if (client->menu == &g_menus[12])
 			{
 				DisplayMenuToClient(ent, nullptr); // reset menu display
@@ -1510,12 +1512,12 @@ void ClientCommand(edict_t* ent)
 						reopenWaypointMenu = &g_menus[9];
 						break;
 					}
-					case 8:
-					{
-						ServerCommand("ebot wp noclip");
-						reopenWaypointMenu = &g_menus[9];
-						break;
-					}
+						case 8:
+						{
+							BotCommandHandler(ent, "wp", "noclip", "", "", "", "");
+							reopenWaypointMenu = &g_menus[9];
+							break;
+						}
 					case 9:
 					{
 						DisplayMenuToClient(ent, &g_menus[9]);

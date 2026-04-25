@@ -1058,7 +1058,7 @@ public:
   void CalculateWayzone(const int16_t index);
   Vector GetBottomOrigin(const Path *waypoint);
 
-  void Sort(const int16_t self, int16_t index[],
+  void Sort(const int16_t self, int16_t index[], uint16_t connectionFlags[] = nullptr,
             const int16_t size = static_cast<int16_t>(Const_MaxPathIndex));
   bool Download(void);
   bool Load(void);
@@ -1082,6 +1082,8 @@ public:
   void DestroyBuckets(void);
   void AddToBucket(const Vector &pos, const int16_t index);
   void EraseFromBucket(const Vector &pos, const int16_t index);
+  void CollectNearbyWaypoints(const Vector &pos, const float radius,
+                              CArray<int16_t> &out);
   CArray<int16_t> &GetWaypointsInBucket(const Vector &pos);
 
   Path *GetPath(const int16_t id);

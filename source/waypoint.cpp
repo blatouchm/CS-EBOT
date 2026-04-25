@@ -33,7 +33,7 @@
 
 ConVar ebot_analyze_distance("ebot_analyze_grid_distance", "40");
 ConVar ebot_analyze_max_jump_height("ebot_analyze_max_jump_height", "62");
-ConVar ebot_max_jump_height("ebot_max_jump_height", "65");
+ConVar ebot_max_jump_height("ebot_max_jump_height", "-1"); //should be 65, but many maps has bad waypoints
 ConVar ebot_human_double_jump("ebot_human_double_jump", "0");
 ConVar ebot_zombie_double_jump("ebot_zombie_double_jump", "0");
 ConVar ebot_analyze_auto_start("ebot_analyze_auto_start", "1");
@@ -47,15 +47,41 @@ ConVar ebot_waypoint_g("ebot_waypoint_g", "255");
 ConVar ebot_waypoint_b("ebot_waypoint_b", "0");
 ConVar ebot_disable_path_matrix("ebot_disable_path_matrix", "0");
 ConVar ebot_analyze_post_processing("ebot_analyze_post_processing", "2");
+ConVar ebot_analyze_optimize_distance("ebot_analyze_optimize_distance", "99");
+ConVar ebot_analyze_optimize_remove_collinear("ebot_analyze_optimize_remove_collinear", "1");
+ConVar ebot_analyze_optimize_remove_duplicate("ebot_analyze_optimize_remove_duplicate", "1");
+ConVar ebot_analyze_optimize_duplicate_factor("ebot_analyze_optimize_duplicate_factor", "0.45");
+ConVar ebot_analyze_optimize_duplicate_height("ebot_analyze_optimize_duplicate_height", "4");
+ConVar ebot_analyze_optimize_collinear_rise("ebot_analyze_optimize_collinear_rise", "2");
+ConVar ebot_analyze_optimize_low_importance("ebot_analyze_optimize_low_importance", "8");
 
 // matrix calculation is detached, so guard matrix memory lifetime with a mutex.
 static tthread::mutex calcMutex{};
+static constexpr float kAnalyzeAutoPathDistance = 250.0f;
+static constexpr float kAnalyzeBypassDistance = kAnalyzeAutoPathDistance * 1.5f;
+static constexpr float kGeneratedAscendingJumpMaxDistance = 100.0f;
+static constexpr float kLadderColumnMaxOffset = 56.0f;
 
-static float GetJumpHeight(edict_t* entity, ConVar& jumpHeightCvar)
+static inline bool IsSameLadderColumn(const Vector& src, const Vector& dest)
 {
-	float jumpHeight = jumpHeightCvar.GetFloat();
+	return cabsf(src.x - dest.x) <= kLadderColumnMaxOffset &&
+		cabsf(src.y - dest.y) <= kLadderColumnMaxOffset;
+}
+
+static inline bool IsGeneratedJumpAllowedByDistance(const Vector& src, const Vector& dest)
+{
+	// Limit applies only for same/higher destinations.
+	if (dest.z + 1.0f < src.z)
+		return true;
+
+	return (dest - src).GetLengthSquared() <= squaredf(kGeneratedAscendingJumpMaxDistance);
+}
+
+static float GetAnalyzeJumpHeight(edict_t* entity)
+{
+	float jumpHeight = ebot_analyze_max_jump_height.GetFloat();
 	if (!FNullEnt(entity) && entity->v.gravity > 0.0f)
-		jumpHeight /= entity->v.gravity;
+		jumpHeight *= entity->v.gravity;
 
 	Bot* bot = g_botManager->GetBot(entity);
 	if (bot)
@@ -70,16 +96,6 @@ static float GetJumpHeight(edict_t* entity, ConVar& jumpHeightCvar)
 	}
 
 	return jumpHeight;
-}
-
-static float GetAnalyzeJumpHeight(edict_t* entity)
-{
-	return GetJumpHeight(entity, ebot_analyze_max_jump_height);
-}
-
-static float GetMaxJumpHeight(edict_t* entity)
-{
-	return GetJumpHeight(entity, ebot_max_jump_height);
 }
 
 static void StopMatrixCalculationInternal(void)
@@ -116,15 +132,22 @@ int16_t Waypoint::FindNearestAnalyzer(const Vector& origin, float minDistance, c
 	minDistance = squaredf(minDistance);
 	float distance;
 
+	CArray<int16_t> nearby;
+	CollectNearbyWaypoints(origin, range, nearby);
+
 	int16_t i;
-	for (i = 0; i < g_numWaypoints; i++)
+	for (i = 0; i < nearby.Size(); i++)
 	{
-		distance = (m_paths[i].origin - origin).GetLengthSquared();
+		const int16_t candidate = nearby[i];
+		if (!IsValidWaypoint(candidate))
+			continue;
+
+		distance = (m_paths[candidate].origin - origin).GetLengthSquared();
 		if (distance < minDistance)
 		{
-			if (IsNodeReachableAnalyze(m_paths[i].origin, origin, range) && IsNodeReachableAnalyze(m_paths[i].origin, origin, range, true))
+			if (IsNodeReachableAnalyze(m_paths[candidate].origin, origin, range))
 			{
-				index = i;
+				index = candidate;
 				minDistance = distance;
 			}
 		}
@@ -135,7 +158,11 @@ int16_t Waypoint::FindNearestAnalyzer(const Vector& origin, float minDistance, c
 
 inline Vector GetPositionOnGrid(const Vector& origin)
 {
-	return Vector(static_cast<int>(origin.x / ebot_analyze_distance.GetFloat()) * ebot_analyze_distance.GetFloat(), static_cast<int>(origin.y / ebot_analyze_distance.GetFloat()) * ebot_analyze_distance.GetFloat(), origin.z);
+	const float grid = ebot_analyze_distance.GetFloat();
+	if (grid <= 0.0f)
+		return origin;
+
+	return Vector(cfloorf(origin.x / grid) * grid, cfloorf(origin.y / grid) * grid, origin.z);
 }
 
 inline void CreateWaypoint(const Vector& start, Vector& Next, float range, const float rngmul)
@@ -154,12 +181,20 @@ inline void CreateWaypoint(const Vector& start, Vector& Next, float range, const
 	if (IsValidWaypoint(index))
 		return;
 
+	const Vector floorProbeEnd = Vector(tr.vecEndPos.x, tr.vecEndPos.y, (tr.vecEndPos.z - 120.0f));
+
 	TraceResult tr2;
-	TraceHull(tr.vecEndPos, Vector(tr.vecEndPos.x, tr.vecEndPos.y, (tr.vecEndPos.z - 800.0f)), TraceIgnore::Monsters, head_hull, g_hostEntity, &tr2);
+	// First pass with point hull prevents false floor snaps near ledge side faces.
+	TraceHull(tr.vecEndPos, floorProbeEnd, TraceIgnore::Monsters, point_hull, g_hostEntity, &tr2);
 	if (tr2.flFraction >= 1.0f)
 		return;
 
-	Vector TargetPosition = tr2.vecEndPos;
+	TraceResult tr3;
+	TraceHull(tr.vecEndPos, floorProbeEnd, TraceIgnore::Monsters, head_hull, g_hostEntity, &tr3);
+	if (tr3.flFraction >= 1.0f)
+		return;
+
+	Vector TargetPosition = tr3.vecEndPos;
 	TargetPosition.z = TargetPosition.z + 19.0f;
 
 	index = g_waypoint->FindNearestAnalyzer(TargetPosition, range, range);
@@ -210,6 +245,41 @@ private:
 	CArray<Path>* m_paths;
 	float m_optimizeDistance;
 	OptimizationStats m_stats;
+	CArray<uint8_t> m_removed;
+	bool m_removedReady;
+
+	// Optimizer clears removed waypoints in-place, so track already removed indices.
+	bool IsRemovedWaypoint(const int16_t index)
+	{
+		if (!m_removedReady)
+			return false;
+
+		if (index < 0 || index >= m_removed.Size())
+			return false;
+
+		return m_removed.Get(index) != 0;
+	}
+
+	float GetDuplicateDistance(void) const
+	{
+		const float duplicateFactor = cclampf(ebot_analyze_optimize_duplicate_factor.GetFloat(), 0.15f, 1.0f);
+		return m_optimizeDistance * duplicateFactor;
+	}
+
+	float GetLowImportanceThreshold(void) const
+	{
+		return cclampf(ebot_analyze_optimize_low_importance.GetFloat(), 3.0f, 25.0f);
+	}
+
+	float GetDuplicateHeightThreshold(void) const
+	{
+		return cclampf(ebot_analyze_optimize_duplicate_height.GetFloat(), 0.0f, 128.0f);
+	}
+
+	float GetCollinearRiseThreshold(void) const
+	{
+		return cclampf(ebot_analyze_optimize_collinear_rise.GetFloat(), 0.0f, 128.0f);
+	}
 
 	float GetWaypointImportance(const int16_t index) const
 	{
@@ -274,18 +344,38 @@ private:
 			return false;
 
 		const Vector& from = m_paths->Get(fromIdx).origin;
-		const Vector line = m_paths->Get(toIdx).origin - from;
+		const Vector& to = m_paths->Get(toIdx).origin;
+		const Vector line = to - from;
 		const float lineLenSq = line.GetLengthSquared();
 		if (lineLenSq < 1.0f)
 			return false;
-		
-		const Vector& mid = m_paths->Get(midIdx).origin;
-		const Vector toMid = mid - from;
-		const float t = (toMid.x * line.x + toMid.y * line.y + toMid.z * line.z) / lineLenSq;
-		if (t < 0.0f || t > 1.0f)
-			return false;
 
-		return (mid - (from + line * t)).GetLength() < tolerance;
+		// Keep upward/downward ramp segments intact.
+		if (cabsf(to.z - from.z) > GetCollinearRiseThreshold())
+			return false;
+		
+			const Vector& mid = m_paths->Get(midIdx).origin;
+			const Vector toMid = mid - from;
+			const float t = (toMid.x * line.x + toMid.y * line.y + toMid.z * line.z) / lineLenSq;
+			if (t < 0.0f || t > 1.0f)
+				return false;
+
+			const Vector projected = from + line * t;
+			return (mid - projected).GetLength() < tolerance;
+		}
+
+	uint16_t SanitizeConnectionFlagsForLink(const int16_t from, const int16_t to, uint16_t flags) const
+	{
+		if (!IsValidWaypoint(from) || !IsValidWaypoint(to))
+			return flags;
+
+		// Keep vertical same-ladder segments non-jump; cross-ladder jump links are valid.
+		if ((m_paths->Get(from).flags & WAYPOINT_LADDER) &&
+			(m_paths->Get(to).flags & WAYPOINT_LADDER) &&
+			IsSameLadderColumn(m_paths->Get(from).origin, m_paths->Get(to).origin))
+			flags &= static_cast<uint16_t>(~(PATHFLAG_JUMP | PATHFLAG_DOUBLE));
+
+		return flags;
 	}
 
 	void AddPathConnection(const int16_t from, const int16_t to, const uint16_t flags = 0)
@@ -293,39 +383,201 @@ private:
 		if (!IsValidWaypoint(from) || !IsValidWaypoint(to))
 			return;
 
+		const uint16_t safeFlags = SanitizeConnectionFlagsForLink(from, to, flags);
+
 		int8_t c;
 		Path* fromPath = &m_paths->Get(from);
 		for (c = 0; c < Const_MaxPathIndex; c++)
 		{
 			if (fromPath->index[c] == to)
+			{
+				fromPath->connectionFlags[c] = SanitizeConnectionFlagsForLink(from, to, fromPath->connectionFlags[c]);
 				return;
+			}
 		}
 
 		for (c = 0; c < Const_MaxPathIndex; c++)
 		{
-			if (fromPath->index[c] == -1) {
+			if (fromPath->index[c] == -1)
+			{
 				fromPath->index[c] = static_cast<int16_t>(to);
-				fromPath->connectionFlags[c] = flags;
+				fromPath->connectionFlags[c] = safeFlags;
 				return;
 			}
 		}
 	}
 
-	void RemoveWaypointAndBypass(const int16_t removeIdx)
+	bool HasPathConnection(const int16_t from, const int16_t to) const
 	{
-		if (!IsValidWaypoint(removeIdx))
-			return;
+		if (!IsValidWaypoint(from) || !IsValidWaypoint(to))
+			return false;
+
+		int8_t c;
+		const Path* fromPath = &m_paths->Get(from);
+		for (c = 0; c < Const_MaxPathIndex; c++)
+		{
+			if (fromPath->index[c] == to)
+				return true;
+		}
+
+		return false;
+	}
+
+	int8_t CountFreePathSlots(const Path* path) const
+	{
+		if (!path)
+			return 0;
+
+		int8_t freeSlots = 0;
+		int8_t c;
+		for (c = 0; c < Const_MaxPathIndex; c++)
+		{
+			if (path->index[c] == -1)
+				freeSlots++;
+		}
+
+		return freeSlots;
+	}
+
+	bool CanBypassConnection(const int16_t from, const int16_t to, const uint16_t flags) const
+	{
+		if (!IsValidWaypoint(from) || !IsValidWaypoint(to) || from == to)
+			return false;
+
+		// Do not synthesize new ladder-to-ladder edges through bypass rewiring.
+		// Ladder chains are generated explicitly and should not be altered here.
+		const bool fromIsLadder = (m_paths->Get(from).flags & WAYPOINT_LADDER) != 0;
+		const bool toIsLadder = (m_paths->Get(to).flags & WAYPOINT_LADDER) != 0;
+		if (fromIsLadder && toIsLadder && !HasPathConnection(from, to))
+			return false;
+
+		// keep special movement links intact - they are too risky to rewrite blindly
+		if (flags & (PATHFLAG_JUMP | PATHFLAG_DOUBLE))
+			return false;
+
+		const Vector& fromOrigin = m_paths->Get(from).origin;
+		const Vector& toOrigin = m_paths->Get(to).origin;
+
+		// If bypass would force a long jump on same/higher height, keep the
+		// intermediate waypoint instead of collapsing this segment.
+		if (g_waypoint->MustJump(fromOrigin, toOrigin) &&
+			!IsGeneratedJumpAllowedByDistance(fromOrigin, toOrigin))
+			return false;
+
+		if (HasPathConnection(from, to))
+			return true;
+
+		return g_waypoint->IsNodeReachableAnalyze(fromOrigin, toOrigin, kAnalyzeBypassDistance) ||
+			g_waypoint->IsNodeReachableAnalyze(fromOrigin, toOrigin, kAnalyzeBypassDistance, false);
+	}
+
+	bool IsIsolatedWaypoint(const int16_t index)
+	{
+		if (!IsValidWaypoint(index))
+			return false;
+
+		const Vector& origin = m_paths->Get(index).origin;
+		const float keepDistanceSq = squaredf(200.0f);
+		float nearestSq = 9999999.0f;
+
+		for (int16_t i = 0; i < m_numWaypoints; i++)
+		{
+			if (i == index || IsRemovedWaypoint(i))
+				continue;
+
+			if (!IsValidWaypoint(i))
+				continue;
+
+			const float distanceSq = (m_paths->Get(i).origin - origin).GetLengthSquared();
+			if (distanceSq < nearestSq)
+				nearestSq = distanceSq;
+		}
+
+		return nearestSq >= keepDistanceSq;
+	}
+
+		bool RemoveWaypointAndBypass(const int16_t removeIdx)
+		{
+			if (!IsValidWaypoint(removeIdx))
+				return false;
+
+			if (IsRemovedWaypoint(removeIdx))
+				return false;
+
+			if (m_paths->Get(removeIdx).flags & WAYPOINT_LADDER)
+				return false;
+
+		// Keep sparse/isolated points - removing these breaks map coverage.
+		if (IsIsolatedWaypoint(removeIdx))
+			return false;
 
 		int8_t c, c2;
 		int16_t i, dest;
 		Path* fromPath;
-		uint16_t incomingFlags;
+		uint16_t incomingFlags, mergedFlags;
 		Path* removePath = &m_paths->Get(removeIdx);
+
+		// Validate all bypass links first; if any is invalid, keep the waypoint.
 		for (i = 0; i < m_numWaypoints; i++)
 		{
-			if (i == removeIdx)
+			if (i == removeIdx || IsRemovedWaypoint(i))
 				continue;
-			
+
+			fromPath = &m_paths->Get(i);
+			for (c = 0; c < Const_MaxPathIndex; c++)
+			{
+				if (fromPath->index[c] != removeIdx)
+					continue;
+
+				const int8_t availableSlots = static_cast<int8_t>(CountFreePathSlots(fromPath) + 1); // plus the slot currently occupied by removeIdx
+				int16_t pendingDestinations[Const_MaxPathIndex];
+				int8_t pendingCount = 0;
+				int8_t pendingIndex;
+
+				incomingFlags = fromPath->connectionFlags[c];
+				for (c2 = 0; c2 < Const_MaxPathIndex; c2++)
+				{
+					dest = removePath->index[c2];
+					if (!IsValidWaypoint(dest) || dest == i || dest == removeIdx || IsRemovedWaypoint(dest))
+						continue;
+
+					mergedFlags = SanitizeConnectionFlagsForLink(i, dest, static_cast<uint16_t>(incomingFlags | removePath->connectionFlags[c2]));
+					if (!CanBypassConnection(i, dest, mergedFlags))
+						return false;
+
+					if (HasPathConnection(i, dest))
+						continue;
+
+					bool alreadyPending = false;
+					for (pendingIndex = 0; pendingIndex < pendingCount; pendingIndex++)
+					{
+						if (pendingDestinations[pendingIndex] == dest)
+						{
+							alreadyPending = true;
+							break;
+						}
+					}
+
+					if (!alreadyPending)
+					{
+						if (pendingCount >= Const_MaxPathIndex)
+							return false;
+
+						pendingDestinations[pendingCount++] = dest;
+					}
+				}
+
+				if (pendingCount > availableSlots)
+					return false;
+			}
+		}
+
+		// Safe to bypass: rewrite incoming links and clear removed node.
+		for (i = 0; i < m_numWaypoints; i++)
+		{
+			if (i == removeIdx || IsRemovedWaypoint(i))
+				continue;
+
 			fromPath = &m_paths->Get(i);
 			for (c = 0; c < Const_MaxPathIndex; c++)
 			{
@@ -333,17 +585,18 @@ private:
 					continue;
 
 				incomingFlags = fromPath->connectionFlags[c];
+				fromPath->index[c] = -1;
+				fromPath->connectionFlags[c] = 0;
+
 				for (c2 = 0; c2 < Const_MaxPathIndex; c2++)
 				{
 					dest = removePath->index[c2];
-					if (!IsValidWaypoint(dest) || dest == i)
+					if (!IsValidWaypoint(dest) || dest == i || dest == removeIdx || IsRemovedWaypoint(dest))
 						continue;
 
-					AddPathConnection(i, dest, (incomingFlags | removePath->connectionFlags[c2]));
+					mergedFlags = SanitizeConnectionFlagsForLink(i, dest, static_cast<uint16_t>(incomingFlags | removePath->connectionFlags[c2]));
+					AddPathConnection(i, dest, mergedFlags);
 				}
-
-				fromPath->index[c] = -1;
-				fromPath->connectionFlags[c] = 0;
 				break;
 			}
 		}
@@ -355,255 +608,427 @@ private:
 			fromPath->index[c] = -1;
 			fromPath->connectionFlags[c] = 0;
 		}
+
+		if (removeIdx >= 0 && removeIdx < m_removed.Size())
+			m_removed[removeIdx] = 1;
+
+		return true;
 	}
 
-	bool Pass_RemoveCollinear(void)
-	{
+		bool RemoveWaypointDirect(const int16_t removeIdx)
+		{
+			if (!IsValidWaypoint(removeIdx))
+				return false;
+
+			if (IsRemovedWaypoint(removeIdx))
+				return false;
+
+			if (m_paths->Get(removeIdx).flags & WAYPOINT_LADDER)
+				return false;
+
 		int8_t c;
-		Path* path, *fromPath;
-		int16_t i, from, to;
-		bool changed = false, hasFromConnection;
-		for (i = 0; i < m_numWaypoints; i++) {
-			if (!IsValidWaypoint(i))
+		int16_t i;
+		Path* path;
+		for (i = 0; i < m_numWaypoints; i++)
+		{
+			if (i == removeIdx || IsRemovedWaypoint(i))
 				continue;
 
 			path = &m_paths->Get(i);
-			if (path->flags & (WAYPOINT_GOAL | WAYPOINT_LADDER | WAYPOINT_CAMP | WAYPOINT_RESCUE | WAYPOINT_USEBUTTON | WAYPOINT_LEAVE | WAYPOINT_WAIT))
+			for (c = 0; c < Const_MaxPathIndex; c++)
+			{
+				if (path->index[c] == removeIdx)
+				{
+					path->index[c] = -1;
+					path->connectionFlags[c] = 0;
+				}
+			}
+		}
+
+		path = &m_paths->Get(removeIdx);
+		path->flags = 0;
+		for (c = 0; c < Const_MaxPathIndex; c++)
+		{
+			path->index[c] = -1;
+			path->connectionFlags[c] = 0;
+		}
+
+		if (removeIdx >= 0 && removeIdx < m_removed.Size())
+			m_removed[removeIdx] = 1;
+
+		return true;
+	}
+
+		bool RemoveDuplicateWaypoint(const int16_t removeIdx, const int16_t keepIdx)
+		{
+			if (!IsValidWaypoint(removeIdx) || !IsValidWaypoint(keepIdx) || removeIdx == keepIdx)
+				return false;
+
+			if (IsRemovedWaypoint(removeIdx) || IsRemovedWaypoint(keepIdx))
+				return false;
+
+			if ((m_paths->Get(removeIdx).flags & WAYPOINT_LADDER) || (m_paths->Get(keepIdx).flags & WAYPOINT_LADDER))
+				return false;
+
+		int8_t c;
+		int16_t i;
+		int16_t outgoingIndex[Const_MaxPathIndex];
+		uint16_t outgoingFlags[Const_MaxPathIndex];
+		int8_t outgoingCount = 0;
+
+		Path* removePath = &m_paths->Get(removeIdx);
+		for (c = 0; c < Const_MaxPathIndex; c++)
+		{
+			const int16_t dest = removePath->index[c];
+			if (!IsValidWaypoint(dest) || dest == removeIdx || IsRemovedWaypoint(dest))
 				continue;
 
-			for (from = 0; from < m_numWaypoints; from++)
+			outgoingIndex[outgoingCount] = dest;
+			outgoingFlags[outgoingCount] = removePath->connectionFlags[c];
+			outgoingCount++;
+		}
+
+		// Redirect incoming links to the kept waypoint.
+		for (i = 0; i < m_numWaypoints; i++)
+		{
+			if (i == removeIdx || IsRemovedWaypoint(i))
+				continue;
+
+			Path* path = &m_paths->Get(i);
+			for (c = 0; c < Const_MaxPathIndex; c++)
 			{
-				if (from == i)
+				if (path->index[c] != removeIdx)
 					continue;
 
-				fromPath = &m_paths->Get(from);
-				hasFromConnection = false;
-				
-				for (c = 0; c < Const_MaxPathIndex; c++)
-				{
-					if (fromPath->index[c] == i)
-					{
-						hasFromConnection = true;
-						break;
-					}
-				}
-				
-				if (!hasFromConnection)
+				const uint16_t incomingFlags = path->connectionFlags[c];
+				path->index[c] = -1;
+				path->connectionFlags[c] = 0;
+
+				if (i != keepIdx)
+					AddPathConnection(i, keepIdx, incomingFlags);
+			}
+		}
+
+		// Keep outgoing connectivity from removed waypoint on the kept waypoint.
+		for (c = 0; c < outgoingCount; c++)
+		{
+			const int16_t dest = outgoingIndex[c];
+			if (dest == keepIdx || IsRemovedWaypoint(dest))
+				continue;
+
+			AddPathConnection(keepIdx, dest, outgoingFlags[c]);
+		}
+
+		removePath = &m_paths->Get(removeIdx);
+		removePath->flags = 0;
+		for (c = 0; c < Const_MaxPathIndex; c++)
+		{
+			removePath->index[c] = -1;
+			removePath->connectionFlags[c] = 0;
+		}
+
+		if (removeIdx >= 0 && removeIdx < m_removed.Size())
+			m_removed[removeIdx] = 1;
+
+		return true;
+	}
+
+	bool Pass_RemoveCollinear(void)
+		{
+			int8_t c;
+			Path* path, *fromPath;
+			int16_t i, from, to;
+			bool changed = false, hasFromConnection, removeTried;
+			for (i = 0; i < m_numWaypoints; i++)
+			{
+				if (!IsValidWaypoint(i) || IsRemovedWaypoint(i))
 					continue;
 
-				for (c = 0; c < Const_MaxPathIndex; c++)
+				removeTried = false;
+				path = &m_paths->Get(i);
+				if (path->flags & (WAYPOINT_GOAL | WAYPOINT_LADDER | WAYPOINT_CAMP | WAYPOINT_RESCUE | WAYPOINT_USEBUTTON))
+					continue;
+
+				for (from = 0; from < m_numWaypoints; from++)
 				{
-					to = path->index[c];
-					if (!IsValidWaypoint(to) || to == from)
+					if (from == i || IsRemovedWaypoint(from))
 						continue;
 
-					if (IsCollinear(from, i, to, m_optimizeDistance))
+					fromPath = &m_paths->Get(from);
+					hasFromConnection = false;
+
+					for (c = 0; c < Const_MaxPathIndex; c++)
 					{
-						RemoveWaypointAndBypass(i);
+						if (fromPath->index[c] == i)
+						{
+							hasFromConnection = true;
+							break;
+						}
+					}
+
+					if (!hasFromConnection)
+						continue;
+
+					for (c = 0; c < Const_MaxPathIndex; c++)
+					{
+						to = path->index[c];
+						if (!IsValidWaypoint(to) || to == from)
+							continue;
+
+						if (IsCollinear(from, i, to, m_optimizeDistance))
+						{
+							removeTried = true;
+							if (RemoveWaypointAndBypass(i))
+							{
+								changed = true;
+								m_stats.removedCollinear++;
+								return changed;
+							}
+
+							break;
+						}
+					}
+
+					if (removeTried)
+						break;
+				}
+			}
+
+			return changed;
+		}
+
+	bool Pass_RemoveDuplicates(void)
+		{
+			int16_t i, j, toRemove, toKeep;
+			Path* pathI, *pathJ;
+			bool changed = false;
+			float impI, impJ;
+			const float duplicateDistance = GetDuplicateDistance();
+			const float duplicateHeightThreshold = GetDuplicateHeightThreshold();
+			bool attempted[Const_MaxWaypoints];
+			for (i = 0; i < m_numWaypoints; i++)
+				attempted[i] = false;
+
+			for (i = 0; i < m_numWaypoints; i++)
+			{
+				if (!IsValidWaypoint(i) || IsRemovedWaypoint(i))
+					continue;
+
+				pathI = &m_paths->Get(i);
+				for (j = i + 1; j < m_numWaypoints; j++)
+				{
+					if (!IsValidWaypoint(j) || IsRemovedWaypoint(j))
+						continue;
+
+					pathJ = &m_paths->Get(j);
+					if (cabsf(pathI->origin.z - pathJ->origin.z) > duplicateHeightThreshold)
+						continue;
+
+					if ((pathI->origin - pathJ->origin).GetLength() < duplicateDistance)
+					{
+						impI = GetWaypointImportance(i);
+						impJ = GetWaypointImportance(j);
+
+							toRemove = impI < impJ ? i : j;
+							toKeep = impI < impJ ? j : i;
+
+							if (attempted[toRemove])
+								continue;
+
+							attempted[toRemove] = true;
+
+						if (RemoveDuplicateWaypoint(toRemove, toKeep))
+						{
+							changed = true;
+							m_stats.removedDuplicate++;
+							return changed;
+						}
+					}
+				}
+			}
+
+			return changed;
+		}
+
+	bool Pass_RemoveUnconnected(void)
+		{
+			int8_t c, outCount;
+			int16_t i, j;
+			Path* path, *otherPath;
+			bool changed = false, hasIncoming;
+
+			for (i = 0; i < m_numWaypoints; i++)
+			{
+				if (!IsValidWaypoint(i) || IsRemovedWaypoint(i))
+					continue;
+
+				path = &m_paths->Get(i);
+				if (path->flags & (WAYPOINT_GOAL | WAYPOINT_RESCUE | WAYPOINT_LADDER))
+					continue;
+
+				outCount = 0;
+				for (c = 0; c < Const_MaxPathIndex; c++)
+				{
+					if (path->index[c] != -1)
+						outCount++;
+				}
+
+				if (outCount > 0)
+					continue;
+
+				hasIncoming = false;
+				for (j = 0; j < m_numWaypoints; j++)
+				{
+					if (j == i || IsRemovedWaypoint(j))
+						continue;
+
+					otherPath = &m_paths->Get(j);
+					for (c = 0; c < Const_MaxPathIndex; c++)
+					{
+						if (otherPath->index[c] == i)
+						{
+							hasIncoming = true;
+							break;
+						}
+					}
+
+					if (hasIncoming)
+						break;
+				}
+
+				if (!hasIncoming)
+				{
+					if (RemoveWaypointDirect(i))
+					{
 						changed = true;
-						m_stats.removedCollinear++;
+						m_stats.removedUnconnected++;
 						return changed;
 					}
 				}
 			}
+
+			return changed;
 		}
 
-		return changed;
-	}
-
-	bool Pass_RemoveDuplicates(void)
-	{
-		int8_t c;
-		int16_t i, j, toRemove, toKeep;
-		Path* pathI, *pathJ, *keepPath, *removePath;
-		bool changed = false;
-		float impI, impJ;
-		for (i = 0; i < m_numWaypoints; i++)
+	bool Pass_RemoveLowImportance(void)
 		{
-			if (!IsValidWaypoint(i))
-				continue;
-
-			pathI = &m_paths->Get(i);
-			for (j = i + 1; j < m_numWaypoints; j++)
+			int16_t i;
+			bool changed = false;
+			const float lowImportanceThreshold = GetLowImportanceThreshold();
+			for (i = 0; i < m_numWaypoints; i++)
 			{
-				if (!IsValidWaypoint(j))
+				if (!IsValidWaypoint(i) || IsRemovedWaypoint(i))
 					continue;
 
-				pathJ = &m_paths->Get(j);
-				if ((pathI->origin - pathJ->origin).GetLength() < m_optimizeDistance * 0.3f)
+				if (m_paths->Get(i).flags & (WAYPOINT_GOAL | WAYPOINT_LADDER | WAYPOINT_CAMP | WAYPOINT_RESCUE | WAYPOINT_USEBUTTON | WAYPOINT_ZMHMCAMP))
+					continue;
+
+				if (GetWaypointImportance(i) < lowImportanceThreshold)
 				{
-					impI = GetWaypointImportance(i);
-					impJ = GetWaypointImportance(j);
-
-					toRemove = impI < impJ ? i : j;
-					toKeep = impI < impJ ? j : i;
-
-					removePath = &m_paths->Get(toRemove);
-					keepPath = &m_paths->Get(toKeep);
-
-					for (c = 0; c < Const_MaxPathIndex; c++)
+					if (RemoveWaypointAndBypass(i))
 					{
-						if (removePath->index[c] != -1)
-							AddPathConnection(toKeep, removePath->index[c], removePath->connectionFlags[c]);
+						changed = true;
+						m_stats.removedLowImportance++;
+						return changed;
 					}
-
-					RemoveWaypointAndBypass(toRemove);
-					changed = true;
-					m_stats.removedDuplicate++;
-					return changed;
 				}
 			}
+
+			return changed;
 		}
-
-		return changed;
-	}
-
-	bool Pass_RemoveUnconnected(void)
-	{
-		int8_t c, outCount;
-		int16_t i, j;
-		Path* path, *otherPath;
-		bool changed = false, hasIncoming;
-
-		for (i = 0; i < m_numWaypoints; i++)
+public:
+	WaypointOptimizer(CArray<Path>* paths, int16_t numWaypoints) : m_paths(paths), m_numWaypoints(numWaypoints), m_optimizeDistance(cclampf(ebot_analyze_optimize_distance.GetFloat(), 64.0f, 512.0f))
 		{
-			if (!IsValidWaypoint(i))
-				continue;
+			m_stats.removedCollinear = 0;
+			m_stats.removedDuplicate = 0;
+			m_stats.removedUnconnected = 0;
+			m_stats.removedLowImportance = 0;
+			m_stats.totalRemoved = 0;
+			m_removedReady = false;
 
-			path = &m_paths->Get(i);
-			if (path->flags & (WAYPOINT_GOAL | WAYPOINT_RESCUE))
-				continue;
-
-			outCount = 0;
-			for (c = 0; c < Const_MaxPathIndex; c++)
+			if (m_removed.Resize(m_numWaypoints, true))
 			{
-				if (path->index[c] != -1)
-					outCount++;
-			}
-
-			if (outCount > 0)
-				continue;
-
-			hasIncoming = false;
-			for (j = 0; j < m_numWaypoints; j++)
-			{
-				if (j == i)
-					continue;
-				
-				otherPath = &m_paths->Get(j);
-				for (c = 0; c < Const_MaxPathIndex; c++)
+				int16_t i;
+				for (i = 0; i < m_numWaypoints; i++)
 				{
-					if (otherPath->index[c] == i)
-					{
-						hasIncoming = true;
+					if (!m_removed.Push(0, false))
 						break;
-					}
 				}
 
-				if (hasIncoming)
+				m_removedReady = (m_removed.Size() == m_numWaypoints);
+			}
+		}
+
+		void Optimize(void)
+			{
+				if (m_numWaypoints < 50)
+				{
+					ServerPrint("Not enough waypoints to optimize (%d)", m_numWaypoints);
+					return;
+				}
+
+				ServerPrint("=== WAYPOINT OPTIMIZATION STARTED ===");
+				ServerPrint("Initial waypoints: %d", m_numWaypoints);
+				ServerPrint("Optimize distance: %.1f", m_optimizeDistance);
+				ServerPrint("Remove collinear: %s", ebot_analyze_optimize_remove_collinear.GetBool() ? "on" : "off");
+				ServerPrint("Remove duplicate: %s", ebot_analyze_optimize_remove_duplicate.GetBool() ? "on" : "off");
+				ServerPrint("Duplicate distance: %.1f", GetDuplicateDistance());
+				ServerPrint("Duplicate max height diff: %.1f", GetDuplicateHeightThreshold());
+				ServerPrint("Collinear max rise: %.1f", GetCollinearRiseThreshold());
+				ServerPrint("Low importance threshold: %.1f", GetLowImportanceThreshold());
+				if (!m_removedReady)
+				{
+					ServerPrint("Optimization aborted: failed to allocate removed-waypoint mask (%d).", m_numWaypoints);
+					return;
+				}
+
+				int16_t pass = 0;
+				bool changed = false;
+				for (;;)
+				{
+					pass++;
+					changed = false;
+
+					ServerPrint("[Pass %d] Running optimization checks...", pass);
+
+					if (ebot_analyze_optimize_remove_collinear.GetBool() && Pass_RemoveCollinear())
+					{
+					changed = true;
+					continue;
+				}
+
+				if (ebot_analyze_optimize_remove_duplicate.GetBool() && Pass_RemoveDuplicates())
+				{
+					changed = true;
+					continue;
+				}
+
+				if (Pass_RemoveUnconnected())
+				{
+					changed = true;
+					continue;
+				}
+
+				if (Pass_RemoveLowImportance())
+				{
+					changed = true;
+					continue;
+				}
+
+				if (!changed)
 					break;
 			}
 
-			if (!hasIncoming)
-			{
-				RemoveWaypointAndBypass(i);
-				changed = true;
-				m_stats.removedUnconnected++;
-				return changed;
-			}
+			m_stats.totalRemoved = m_stats.removedCollinear + m_stats.removedDuplicate + m_stats.removedUnconnected + m_stats.removedLowImportance;
+			ServerPrint("=== WAYPOINT OPTIMIZATION COMPLETE ===");
+			ServerPrint("Collinear removed: %d", m_stats.removedCollinear);
+			ServerPrint("Duplicate removed: %d", m_stats.removedDuplicate);
+			ServerPrint("Unconnected removed: %d", m_stats.removedUnconnected);
+			ServerPrint("Low importance removed: %d", m_stats.removedLowImportance);
+			ServerPrint("Total removed: %d", m_stats.totalRemoved);
+			ServerPrint("Final waypoints: %d", m_numWaypoints - m_stats.totalRemoved);
+			ServerPrint("Optimization ratio: %.1f%%", (float)m_stats.totalRemoved / m_numWaypoints * 100.0f);
 		}
-
-		return changed;
-	}
-
-	bool Pass_RemoveLowImportance(void)
-	{
-		int16_t i;
-		bool changed = false;
-		for (i = 0; i < m_numWaypoints; i++)
-		{
-			if (!IsValidWaypoint(i))
-				continue;
-
-			if (m_paths->Get(i).flags & (WAYPOINT_GOAL | WAYPOINT_LADDER | WAYPOINT_CAMP | WAYPOINT_RESCUE | WAYPOINT_USEBUTTON | WAYPOINT_ZMHMCAMP | WAYPOINT_LEAVE | WAYPOINT_WAIT))
-				continue;
-
-			if (GetWaypointImportance(i) < 5.0f)
-			{
-				RemoveWaypointAndBypass(i);
-				changed = true;
-				m_stats.removedLowImportance++;
-				return changed;
-			}
-		}
-
-		return changed;
-	}
-public:
-	WaypointOptimizer(CArray<Path>* paths, int16_t numWaypoints) : m_paths(paths), m_numWaypoints(numWaypoints), m_optimizeDistance(128.0f)
-	{
-		m_stats.removedCollinear = 0;
-		m_stats.removedDuplicate = 0;
-		m_stats.removedUnconnected = 0;
-		m_stats.removedLowImportance = 0;
-		m_stats.totalRemoved = 0;
-	}
-
-	void Optimize(void)
-	{
-		if (m_numWaypoints < 50)
-		{
-			ServerPrint("Not enough waypoints to optimize (%d)", m_numWaypoints);
-			return;
-		}
-
-		ServerPrint("=== WAYPOINT OPTIMIZATION STARTED ===");
-		ServerPrint("Initial waypoints: %d", m_numWaypoints);
-
-		int8_t pass = 0;
-		bool changed = true;
-		while (changed && pass < 10)
-		{
-			changed = false;
-			pass++;
-
-			ServerPrint("[Pass %d] Running optimization checks...", pass);
-
-			if (Pass_RemoveCollinear())
-			{
-				changed = true;
-				continue;
-			}
-
-			if (Pass_RemoveDuplicates())
-			{
-				changed = true;
-				continue;
-			}
-
-			if (Pass_RemoveUnconnected())
-			{
-				changed = true;
-				continue;
-			}
-
-			if (Pass_RemoveLowImportance())
-			{
-				changed = true;
-				continue;
-			}
-		}
-
-		m_stats.totalRemoved = m_stats.removedCollinear + m_stats.removedDuplicate + m_stats.removedUnconnected + m_stats.removedLowImportance;
-		ServerPrint("=== WAYPOINT OPTIMIZATION COMPLETE ===");
-		ServerPrint("Collinear removed: %d", m_stats.removedCollinear);
-		ServerPrint("Duplicate removed: %d", m_stats.removedDuplicate);
-		ServerPrint("Unconnected removed: %d", m_stats.removedUnconnected);
-		ServerPrint("Low importance removed: %d", m_stats.removedLowImportance);
-		ServerPrint("Total removed: %d", m_stats.totalRemoved);
-		ServerPrint("Final waypoints: %d", m_numWaypoints - m_stats.totalRemoved);
-		ServerPrint("Optimization ratio: %.1f%%", (float)m_stats.totalRemoved / m_numWaypoints * 100.0f);
-	}
 };
 
 inline void OptimizeThread(void)
@@ -612,23 +1037,99 @@ inline void OptimizeThread(void)
 	optimizer.Optimize();
 }
 
+inline void SanitizeLadderConnectionFlags(void)
+{
+	int16_t i;
+	int8_t c;
+	for (i = 0; i < g_numWaypoints; i++)
+	{
+		if (!(g_waypoint->m_paths[i].flags & WAYPOINT_LADDER))
+			continue;
+
+		for (c = 0; c < Const_MaxPathIndex; c++)
+		{
+			const int16_t dest = g_waypoint->m_paths[i].index[c];
+			if (!IsValidWaypoint(dest))
+				continue;
+
+			if (!(g_waypoint->m_paths[dest].flags & WAYPOINT_LADDER))
+				continue;
+
+			const Vector& srcOrigin = g_waypoint->m_paths[i].origin;
+			const Vector& destOrigin = g_waypoint->m_paths[dest].origin;
+			const bool sameLadderColumn = IsSameLadderColumn(srcOrigin, destOrigin);
+			if (sameLadderColumn)
+			{
+				g_waypoint->m_paths[i].connectionFlags[c] &= static_cast<uint16_t>(~(PATHFLAG_JUMP | PATHFLAG_DOUBLE));
+			}
+			else
+			{
+				// Cross-ladder transitions may legitimately require jump links.
+				if (g_waypoint->MustJump(srcOrigin, destOrigin) &&
+					IsGeneratedJumpAllowedByDistance(srcOrigin, destOrigin))
+					g_waypoint->m_paths[i].connectionFlags[c] |= PATHFLAG_JUMP;
+			}
+		}
+	}
+
+	// Keep ladder chains bidirectional. One-way ladder edges are often a side
+	// effect of optimizer rewiring and confuse traversal/debug visuals.
+	for (i = 0; i < g_numWaypoints; i++)
+	{
+		if (!(g_waypoint->m_paths[i].flags & WAYPOINT_LADDER))
+			continue;
+
+		for (c = 0; c < Const_MaxPathIndex; c++)
+		{
+			const int16_t dest = g_waypoint->m_paths[i].index[c];
+			if (!IsValidWaypoint(dest))
+				continue;
+
+			if (!(g_waypoint->m_paths[dest].flags & WAYPOINT_LADDER))
+				continue;
+
+			if (!IsSameLadderColumn(g_waypoint->m_paths[i].origin, g_waypoint->m_paths[dest].origin))
+				continue;
+
+			if (!g_waypoint->IsConnected(dest, i))
+				g_waypoint->AddPath(dest, i);
+		}
+	}
+}
+
 inline void FixWaypoints(void)
 {
+	SanitizeLadderConnectionFlags();
+
 	int16_t i;
 	int8_t C;
 	for (i = 0; i < g_numWaypoints; i++)
 	{
-		if (g_waypoint->m_paths[i].flags & WAYPOINT_LADDER)
-			continue;
-
 		for (C = 0; C < Const_MaxPathIndex; C++)
 		{
-			if (IsValidWaypoint(g_waypoint->m_paths[i].index[C]) && !(g_waypoint->m_paths[g_waypoint->m_paths[i].index[C]].flags & WAYPOINT_LADDER))
+			const int16_t destIndex = g_waypoint->m_paths[i].index[C];
+			if (IsValidWaypoint(destIndex))
 			{
-				if ((g_waypoint->m_paths[i].origin.z + 72.0f) < g_waypoint->m_paths[g_waypoint->m_paths[i].index[C]].origin.z)
-					g_waypoint->DeletePathByIndex(i, g_waypoint->m_paths[i].index[C]);
-				else if (g_waypoint->MustJump(g_waypoint->m_paths[i].origin, g_waypoint->m_paths[g_waypoint->m_paths[i].index[C]].origin))
-					g_waypoint->m_paths[i].connectionFlags[C] |= PATHFLAG_JUMP;
+				const Vector& srcOrigin = g_waypoint->m_paths[i].origin;
+				const Vector& destOrigin = g_waypoint->m_paths[destIndex].origin;
+				const bool srcLadder = (g_waypoint->m_paths[i].flags & WAYPOINT_LADDER) != 0;
+				const bool destLadder = (g_waypoint->m_paths[destIndex].flags & WAYPOINT_LADDER) != 0;
+				const bool sameLadderColumn = srcLadder && destLadder && IsSameLadderColumn(srcOrigin, destOrigin);
+
+					const bool ladderToLadder = srcLadder && destLadder;
+					if (!ladderToLadder && (srcOrigin.z + 72.0f) < destOrigin.z)
+						g_waypoint->DeletePathByIndex(i, destIndex);
+					else if (g_waypoint->MustJump(srcOrigin, destOrigin))
+					{
+						// Keep vertical links on the same ladder column even when
+						// the vertical gap is larger than generic jump limits.
+						if (sameLadderColumn)
+							g_waypoint->m_paths[i].connectionFlags[C] &= static_cast<uint16_t>(~(PATHFLAG_JUMP | PATHFLAG_DOUBLE));
+						else if (IsGeneratedJumpAllowedByDistance(srcOrigin, destOrigin))
+							g_waypoint->m_paths[i].connectionFlags[C] |= PATHFLAG_JUMP;
+						else
+							g_waypoint->DeletePathByIndex(i, destIndex);
+					}
 			}
 		}
 	}
@@ -680,7 +1181,7 @@ void AnalyzeThread(void)
 			continue;
 
 		WayVec = g_waypoint->GetPath(i)->origin;
-		for (dir = 1; dir < 16; dir++)
+		for (dir = 1; dir <= 16; dir++)
 		{
 			switch (dir)
 			{
@@ -726,13 +1227,13 @@ void AnalyzeThread(void)
 					Next.z = WayVec.z;
 					break;
 				}
-				case 7:
-				{
-					Next.x = WayVec.x - range;
-					Next.y = WayVec.y + range;
-					Next.z = WayVec.z;
-					break;
-				}
+					case 7:
+					{
+						Next.x = WayVec.x + range;
+						Next.y = WayVec.y - range;
+						Next.z = WayVec.z;
+						break;
+					}
 				case 8:
 				{
 					Next.x = WayVec.x - range;
@@ -782,13 +1283,13 @@ void AnalyzeThread(void)
 					Next.z = WayVec.z + range;
 					break;
 				}
-				case 15:
-				{
-					Next.x = WayVec.x - range;
-					Next.y = WayVec.y + range;
-					Next.z = WayVec.z + range;
-					break;
-				}
+					case 15:
+					{
+						Next.x = WayVec.x + range;
+						Next.y = WayVec.y - range;
+						Next.z = WayVec.z + range;
+						break;
+					}
 				case 16:
 				{
 					Next.x = WayVec.x - range;
@@ -848,27 +1349,30 @@ void Waypoint::Analyze(void)
 
 void Waypoint::AnalyzeDeleteUselessWaypoints(void)
 {
-	int16_t i;
 	int8_t connections, j;
-	for (i = 0; i < g_numWaypoints; i++)
+	for (int i = g_numWaypoints - 1; i >= 0; --i)
 	{
 		connections = 0;
+		bool shouldDelete = false;
 
 		for (j = 0; j < Const_MaxPathIndex; j++)
 		{
 			if (m_paths[i].index[j] != -1)
 			{
 				if (m_paths[i].index[j] >= g_numWaypoints)
-					DeleteByIndex(i);
+					shouldDelete = true;
 				else if (m_paths[i].index[j] == i)
-					DeleteByIndex(i);
+					shouldDelete = true;
 				else
 					connections++;
+
+				if (shouldDelete)
+					break;
 			}
 		}
 
-		if (!connections)
-			DeleteByIndex(i);
+		if (shouldDelete || !connections)
+			DeleteByIndex(static_cast<int16_t>(i));
 	}
 }
 
@@ -878,13 +1382,28 @@ void Waypoint::AddPath(const int16_t addIndex, const int16_t pathIndex, const in
 		return;
 
 	Path* path = &m_paths[addIndex];
+	int effectiveType = type;
+	if ((m_paths[addIndex].flags & WAYPOINT_LADDER) &&
+		(m_paths[pathIndex].flags & WAYPOINT_LADDER) &&
+		IsSameLadderColumn(m_paths[addIndex].origin, m_paths[pathIndex].origin))
+	{
+		// Vertical links on the same ladder column should never use jump/double-jump.
+		if (effectiveType == 1 || effectiveType == 2)
+			effectiveType = 0;
+	}
 
 	// don't allow paths get connected twice
 	int16_t i;
 	for (i = 0; i < Const_MaxPathIndex; i++)
 	{
 		if (path->index[i] == pathIndex)
+		{
+			if ((m_paths[addIndex].flags & WAYPOINT_LADDER) &&
+				(m_paths[pathIndex].flags & WAYPOINT_LADDER) &&
+				IsSameLadderColumn(m_paths[addIndex].origin, m_paths[pathIndex].origin))
+				path->connectionFlags[i] &= static_cast<uint16_t>(~(PATHFLAG_JUMP | PATHFLAG_DOUBLE));
 			return;
+		}
 	}
 
 	// check for free space in the connection indices
@@ -893,14 +1412,15 @@ void Waypoint::AddPath(const int16_t addIndex, const int16_t pathIndex, const in
 		if (path->index[i] == -1)
 		{
 			path->index[i] = static_cast<int16_t>(pathIndex);
-
-			if (type == 1)
+			path->connectionFlags[i] = 0;
+	
+			if (effectiveType == 1)
 			{
 				path->connectionFlags[i] |= PATHFLAG_JUMP;
 				path->flags |= WAYPOINT_JUMP;
 				path->radius = 4;
 			}
-			else if (type == 2)
+			else if (effectiveType == 2)
 			{
 				path->connectionFlags[i] |= PATHFLAG_DOUBLE;
 				path->flags |= WAYPOINT_DJUMP;
@@ -930,14 +1450,15 @@ void Waypoint::AddPath(const int16_t addIndex, const int16_t pathIndex, const in
 	if (slotID != -1)
 	{
 		path->index[slotID] = static_cast<int16_t>(pathIndex);
-
-		if (type == 1)
+		path->connectionFlags[slotID] = 0;
+	
+		if (effectiveType == 1)
 		{
 			path->connectionFlags[slotID] |= PATHFLAG_JUMP;
 			path->flags |= WAYPOINT_JUMP;
 			path->radius = 4;
 		}
-		else if (type == 2)
+		else if (effectiveType == 2)
 		{
 			path->connectionFlags[slotID] |= PATHFLAG_DOUBLE;
 			path->flags |= WAYPOINT_DJUMP;
@@ -1116,6 +1637,7 @@ void Waypoint::Add(const int flags, const Vector& waypointOrigin, const float an
 
 	bool placeNew = true;
 	Vector newOrigin = waypointOrigin;
+	const float autoPathDistance = g_analyzewaypoints ? kAnalyzeAutoPathDistance : g_autoPathDistance;
 
 	if (waypointOrigin.IsNull())
 	{
@@ -1203,13 +1725,14 @@ void Waypoint::Add(const int flags, const Vector& waypointOrigin, const float an
 	{
 		if (IsValidWaypoint(m_lastJumpWaypoint))
 		{
-			AddPath(m_lastJumpWaypoint, index);
+			AddPath(m_lastJumpWaypoint, index, 1);
 
 			for (i = 0; i < Const_MaxPathIndex; i++)
 			{
 				if (m_paths[m_lastJumpWaypoint].index[i] == index)
 				{
-					m_paths[m_lastJumpWaypoint].connectionFlags[i] |= PATHFLAG_JUMP;
+					if ((m_paths[m_lastJumpWaypoint].flags & WAYPOINT_LADDER) && (m_paths[index].flags & WAYPOINT_LADDER))
+						m_paths[m_lastJumpWaypoint].connectionFlags[i] &= static_cast<uint16_t>(~(PATHFLAG_JUMP | PATHFLAG_DOUBLE));
 					break;
 				}
 			}
@@ -1291,6 +1814,10 @@ void Waypoint::Add(const int flags, const Vector& waypointOrigin, const float an
 	}
 
 	// Ladder waypoints need careful connections
+	CArray<int16_t> nearbyWaypoints;
+	const float localLinkRadius = cmaxf(g_analyzewaypoints ? analyzeRange : autoPathDistance, 64.0f);
+	CollectNearbyWaypoints(newOrigin, localLinkRadius, nearbyWaypoints);
+
 	if (path->flags & WAYPOINT_LADDER)
 	{
 		float minDistance = 9999999.0f;
@@ -1299,28 +1826,31 @@ void Waypoint::Add(const int flags, const Vector& waypointOrigin, const float an
 		TraceResult tr;
 
 		// calculate all the paths to this new waypoint
-		for (i = 0; i < g_numWaypoints; i++)
+		for (i = 0; i < nearbyWaypoints.Size(); i++)
 		{
-			if (i == index)
+			const int16_t candidate = nearbyWaypoints[i];
+			if (!IsValidWaypoint(candidate) || candidate == index)
 				continue; // skip the waypoint that was just added
 
 			// other ladder waypoints should connect to this
-			if (m_paths[i].flags & WAYPOINT_LADDER)
+			if (m_paths[candidate].flags & WAYPOINT_LADDER)
 			{
 				// check if the waypoint is reachable from the new one
-				TraceLine(newOrigin, m_paths[i].origin, TraceIgnore::Everything, g_hostEntity, &tr);
-				if (tr.flFraction >= 1.0f && cabsf(newOrigin.x - m_paths[i].origin.x) < 48.0f && cabsf(newOrigin.y - m_paths[i].origin.y) < 48.0f && cabsf(newOrigin.z - m_paths[i].origin.z) < g_autoPathDistance)
-				{
-					AddPath(index, i);
-					AddPath(i, index);
-				}
+				TraceLine(newOrigin, m_paths[candidate].origin, TraceIgnore::Everything, g_hostEntity, &tr);
+					// Ladders can have long vertical spacing between generated points.
+					const float ladderVerticalLinkLimit = cmaxf(autoPathDistance + 2.0f, 300.0f);
+					if (tr.flFraction >= 1.0f && cabsf(newOrigin.x - m_paths[candidate].origin.x) < 48.0f && cabsf(newOrigin.y - m_paths[candidate].origin.y) < 48.0f && cabsf(newOrigin.z - m_paths[candidate].origin.z) <= ladderVerticalLinkLimit)
+					{
+						AddPath(index, candidate);
+						AddPath(candidate, index);
+					}
 			}
 			else
 			{
-				distance = (m_paths[i].origin - newOrigin).GetLengthSquared();
+				distance = (m_paths[candidate].origin - newOrigin).GetLengthSquared();
 				if (distance < minDistance)
 				{
-					destIndex = i;
+					destIndex = candidate;
 					minDistance = distance;
 				}
 
@@ -1347,58 +1877,127 @@ void Waypoint::Add(const int flags, const Vector& waypointOrigin, const float an
 					AddPath(destIndex, index);
 			}
 		}
-	}
-	else
-	{
-		// calculate all the paths to this new waypoint
-		for (i = 0; i < g_numWaypoints; i++)
+		}
+		else
 		{
-			if (i == index)
-				continue; // skip the waypoint that was just added
+			// Non-ladder waypoint near a ladder should only link to the first
+			// reachable endpoint ladder node (bottom or top), never to middle nodes.
+			int16_t lowerLadder = -1, upperLadder = -1, preferredLadder = -1;
+			float lowerLadderZ = 9999999.0f, upperLadderZ = -9999999.0f;
+			float lowerLadderDist2D = 9999999.0f, upperLadderDist2D = 9999999.0f;
+			float dx, dy, dist2D;
+			const float ladderMaxOffsetXY = 72.0f;
+			const float ladderEndpointMaxDeltaZ = 96.0f;
 
-			if (g_analyzewaypoints)
+			for (i = 0; i < nearbyWaypoints.Size(); i++)
 			{
-				// check if the waypoint is reachable from the new one (one-way)
-				if (IsNodeReachableAnalyze(newOrigin, m_paths[i].origin, analyzeRange))
+				const int16_t candidate = nearbyWaypoints[i];
+				if (!IsValidWaypoint(candidate) || candidate == index)
+					continue;
+
+				if (!(m_paths[candidate].flags & WAYPOINT_LADDER))
+					continue;
+
+				dx = m_paths[candidate].origin.x - newOrigin.x;
+				dy = m_paths[candidate].origin.y - newOrigin.y;
+				if (cabsf(dx) > ladderMaxOffsetXY || cabsf(dy) > ladderMaxOffsetXY)
+					continue;
+
+				dist2D = squaredf(dx) + squaredf(dy);
+				if (m_paths[candidate].origin.z < lowerLadderZ || (m_paths[candidate].origin.z == lowerLadderZ && dist2D < lowerLadderDist2D))
 				{
-					AddPath(index, i);
-					AddPath(i, index);
+					lowerLadder = candidate;
+					lowerLadderZ = m_paths[candidate].origin.z;
+					lowerLadderDist2D = dist2D;
+				}
+
+				if (m_paths[candidate].origin.z > upperLadderZ || (m_paths[candidate].origin.z == upperLadderZ && dist2D < upperLadderDist2D))
+				{
+					upperLadder = candidate;
+					upperLadderZ = m_paths[candidate].origin.z;
+					upperLadderDist2D = dist2D;
+				}
+			}
+
+			if (IsValidWaypoint(lowerLadder) && IsValidWaypoint(upperLadder))
+			{
+				const float dzToLower = cabsf(newOrigin.z - lowerLadderZ);
+				const float dzToUpper = cabsf(newOrigin.z - upperLadderZ);
+				preferredLadder = (dzToLower <= dzToUpper) ? lowerLadder : upperLadder;
+			}
+			else if (IsValidWaypoint(lowerLadder))
+				preferredLadder = lowerLadder;
+			else if (IsValidWaypoint(upperLadder))
+				preferredLadder = upperLadder;
+
+					if (IsValidWaypoint(preferredLadder))
+					{
+						if (cabsf(newOrigin.z - m_paths[preferredLadder].origin.z) <= ladderEndpointMaxDeltaZ)
+						{
+							const bool connectToLowerEndpoint = (preferredLadder == lowerLadder);
+							const float ladderJumpDistanceThresholdSq = squaredf(60.0f);
+							const float ladderDistanceSq = (newOrigin - m_paths[preferredLadder].origin).GetLengthSquared();
+							const bool useJumpLink = connectToLowerEndpoint && ladderDistanceSq < ladderJumpDistanceThresholdSq;
+							const int ladderLinkType = useJumpLink ? 1 : 0;
+							// Keep jump only for very close links to the bottom ladder endpoint.
+							AddPath(index, preferredLadder, ladderLinkType);
+							AddPath(preferredLadder, index, ladderLinkType);
+						}
+					}
+
+			// calculate all the paths to this new waypoint
+			for (i = 0; i < nearbyWaypoints.Size(); i++)
+			{
+				const int16_t candidate = nearbyWaypoints[i];
+				if (!IsValidWaypoint(candidate) || candidate == index)
+					continue; // skip the waypoint that was just added
+
+				if (m_paths[candidate].flags & WAYPOINT_LADDER)
+					continue;
+
+				if (g_analyzewaypoints)
+				{
+				// check if the waypoint is reachable from the new one (one-way)
+				if (IsNodeReachableAnalyze(newOrigin, m_paths[candidate].origin, analyzeRange))
+				{
+					AddPath(index, candidate);
+					AddPath(candidate, index);
 					continue;
 				}
 
 				// check if the new one is reachable from the waypoint (other way)
-				if (IsNodeReachableAnalyze(m_paths[i].origin, newOrigin, analyzeRange))
+				if (IsNodeReachableAnalyze(m_paths[candidate].origin, newOrigin, analyzeRange))
 				{
-					AddPath(i, index);
-					AddPath(index, i);
+					AddPath(candidate, index);
+					AddPath(index, candidate);
 					continue;
 				}
 
 				// check if the waypoint is reachable from the new one (one-way)
-				if (IsNodeReachableAnalyze(newOrigin, m_paths[i].origin, analyzeRange, true))
+				if (IsNodeReachableAnalyze(newOrigin, m_paths[candidate].origin, analyzeRange, true))
 				{
-					AddPath(index, i);
-					AddPath(i, index);
+					AddPath(index, candidate);
+					AddPath(candidate, index);
 					continue;
 				}
 
 				// check if the new one is reachable from the waypoint (other way)
-				if (IsNodeReachableAnalyze(m_paths[i].origin, newOrigin, analyzeRange, true))
+				if (IsNodeReachableAnalyze(m_paths[candidate].origin, newOrigin, analyzeRange, true))
 				{
-					AddPath(i, index);
-					AddPath(index, i);
+					AddPath(candidate, index);
+					AddPath(index, candidate);
 					continue;
 				}
 			}
 			else
 			{
 				// check if the waypoint is reachable from the new one (one-way)
-				if (IsNodeReachable(newOrigin, m_paths[i].origin))
-					AddPath(index, i);
+				if (IsNodeReachable(newOrigin, m_paths[candidate].origin))
+					AddPath(index, candidate);
 
 				// check if the new one is reachable from the waypoint (other way)
-				if (IsNodeReachable(m_paths[i].origin, newOrigin))
-					AddPath(i, index);
+				if (IsNodeReachable(m_paths[candidate].origin, newOrigin))
+					AddPath(candidate, index);
 			}
 		}
 	}
@@ -2302,14 +2901,13 @@ void CalculateMatrix(void* arg)
 		// write path & distance matrix
 		fp.Write(wpt->m_distMatrix.Get(), sizeof(int16_t), g_numWaypoints * g_numWaypoints);
 
-			// and close the file
-			fp.Close();
-			ServerPrint("Distance matrix calculation finished. New matrix has been saved.");
+		// and close the file
+		fp.Close();
 
-			g_isMatrixCalculating = false;
-			calcMutex.unlock();
-		}
+		g_isMatrixCalculating = false;
+		calcMutex.unlock();
 	}
+}
 
 void Waypoint::SavePathMatrix(void)
 {
@@ -2370,33 +2968,38 @@ bool Waypoint::LoadPathMatrix(void)
 
 inline float dsq(const float* start, const float* end)
 {
-	const float dx = start[0] - start[0];
-	const float dy = start[1] - start[1];
-	const float dz = start[2] - start[2];
+	const float dx = start[0] - end[0];
+	const float dy = start[1] - end[1];
+	const float dz = start[2] - end[2];
 	return dx * dx + dy * dy + dz * dz;
 }
 
-void Waypoint::Sort(const int16_t self, int16_t index[], const int16_t size)
+void Waypoint::Sort(const int16_t self, int16_t index[], uint16_t connectionFlags[], const int16_t size)
 {
-	float pri_i, pri_j;
+	constexpr float kInvalidPriority = 3.402823466e+38F;
+	float pri_j, minPriority;
 	int16_t i, j, min, temp;
+	uint16_t flagTemp;
 	for (i = 0; i < size - 1; i++)
 	{
 		min = i;
+		if (IsValidWaypoint(index[min]))
+			minPriority = dsq(m_paths[self].origin, m_paths[index[min]].origin);
+		else
+			minPriority = kInvalidPriority;
+
 		for (j = i + 1; j < size; j++)
 		{
-			if (IsValidWaypoint(index[i]))
-				pri_i = dsq(m_paths[self].origin, m_paths[index[i]].origin);
-			else
-				pri_i = 65355.0f;
-
 			if (IsValidWaypoint(index[j]))
 				pri_j = dsq(m_paths[self].origin, m_paths[index[j]].origin);
 			else
-				pri_j = 65355.0f;
+				pri_j = kInvalidPriority;
 
-			if (pri_j < pri_i)
+			if (pri_j < minPriority)
+			{
 				min = j;
+				minPriority = pri_j;
+			}
 		}
 
 		if (min != i)
@@ -2404,6 +3007,13 @@ void Waypoint::Sort(const int16_t self, int16_t index[], const int16_t size)
 			temp = index[i];
 			index[i] = index[min];
 			index[min] = temp;
+
+			if (connectionFlags)
+			{
+				flagTemp = connectionFlags[i];
+				connectionFlags[i] = connectionFlags[min];
+				connectionFlags[min] = flagTemp;
+			}
 		}
 	}
 }
@@ -2571,7 +3181,7 @@ bool Waypoint::Load(void)
 					{
 						for (i = 0; i < header.pointNumber; i++)
 						{
-							Sort(i, path[i].index);
+								Sort(i, path[i].index, path[i].connectionFlags);
 							m_paths.Push(path[i]);
 							AddToBucket(path[i].origin, i);
 						}
@@ -2592,7 +3202,7 @@ bool Waypoint::Load(void)
 			for (i = 0; i < g_numWaypoints; i++)
 			{
 				fp.Read(&path, sizeof(Path));
-				Sort(i, path.index);
+					Sort(i, path.index, path.connectionFlags);
 				AddToBucket(path.origin, i);
 				m_paths.Push(path);
 			}
@@ -2633,7 +3243,7 @@ bool Waypoint::Load(void)
 					path.connectionFlags[C] = static_cast<uint16_t>(paths.connectionFlags[C]);
 				}
 
-				Sort(i, path.index);
+					Sort(i, path.index, path.connectionFlags);
 				AddToBucket(path.origin, i);
 				m_paths.Push(path);
 			}
@@ -2683,7 +3293,7 @@ bool Waypoint::Load(void)
 					path.connectionFlags[C] = static_cast<uint16_t>(paths.connectionFlags[C]);
 				}
 
-				Sort(i, path.index);
+					Sort(i, path.index, path.connectionFlags);
 				AddToBucket(path.origin, i);
 				m_paths.Push(path);
 			}
@@ -2747,8 +3357,6 @@ bool Waypoint::Load(void)
 
 void Waypoint::Save(void)
 {
-	bool saveSucceeded = false;
-
 	const char* waypointFilePath = CheckSubfolderFile();
 	if (!waypointFilePath)
 	{
@@ -2799,35 +3407,28 @@ void Waypoint::Save(void)
 			for (i = 0; i < g_numWaypoints; i++)
 			{
 				path[i] = m_paths[i];
-				Sort(i, path[i].index);
+					Sort(i, path[i].index, path[i].connectionFlags);
 			}
 
-				if (Compressor::Compress(waypointFilePath, reinterpret_cast<uint8_t*>(&header), sizeof(WaypointHeader), reinterpret_cast<uint8_t*>(&path[0]), g_numWaypoints * sizeof(Path)) == 1)
-				{
-					ServerPrint("Error: Cannot Save Waypoints");
-					CenterPrint("Error: Cannot save waypoints!");
-					AddLogEntry(Log::Error, "Error writing '%s' waypoint file: cannot compress the waypoint file!", GetMapName());
-					fp.Close();
-				}
-				else
-				{
-					ServerPrint("Waypoints Saved");
-					CenterPrint("Waypoints are saved!");
-					fp.Close();
-					saveSucceeded = true;
-				}
+			if (Compressor::Compress(waypointFilePath, reinterpret_cast<uint8_t*>(&header), sizeof(WaypointHeader), reinterpret_cast<uint8_t*>(&path[0]), g_numWaypoints * sizeof(Path)) == 1)
+			{
+				ServerPrint("Error: Cannot Save Waypoints");
+				CenterPrint("Error: Cannot save waypoints!");
+				AddLogEntry(Log::Error, "Error writing '%s' waypoint file: cannot compress the waypoint file!", GetMapName());
+				fp.Close();
 			}
 			else
-				AddLogEntry(Log::Memory, "unexpected memory error -> not enough memory (%s free byte required)", sizeof(Path) * g_numWaypoints);
+			{
+				ServerPrint("Waypoints Saved");
+				CenterPrint("Waypoints are saved!");
+				fp.Close();
+			}
 		}
+		else
+			AddLogEntry(Log::Memory, "unexpected memory error -> not enough memory (%s free byte required)", sizeof(Path) * g_numWaypoints);
+	}
 	else
 		AddLogEntry(Log::Error, "Error writing '%s' waypoint file: file cannot be created!", GetMapName());
-
-	if (saveSucceeded)
-	{
-		m_distMatrix.Destroy();
-		InitPathMatrix(true);
-	}
 }
 
 const char* Waypoint::CheckSubfolderFile(void)
@@ -2884,7 +3485,7 @@ bool Waypoint::Reachable(edict_t* entity, const int16_t index)
 
 	if (dest.z > src.z)
 	{
-		const float jumpHeight = GetMaxJumpHeight(entity);
+		const float jumpHeight = GetAnalyzeJumpHeight(entity);
 
 		if (dest.z > src.z + jumpHeight)
 			return false;
@@ -2902,8 +3503,10 @@ bool Waypoint::Reachable(edict_t* entity, const int16_t index)
 
 bool Waypoint::IsNodeReachable(Vector src, Vector dest)
 {
+	const float autoPathDistance = g_analyzewaypoints ? kAnalyzeAutoPathDistance : g_autoPathDistance;
+
 	// is the destination not close enough?
-   if ((src - dest).GetLengthSquared() > squaredf(g_autoPathDistance))
+	if ((src - dest).GetLengthSquared() > squaredf(autoPathDistance))
 		return false;
 
 	if (!IsWalkableLineClear(src, dest))
@@ -2916,7 +3519,7 @@ bool Waypoint::IsNodeReachable(Vector src, Vector dest)
 
 	if (dest.z > src.z)
 	{
-		const float jumpHeight = GetMaxJumpHeight(g_hostEntity);
+		const float jumpHeight = GetAnalyzeJumpHeight(g_hostEntity);
 
 		if (dest.z > src.z + jumpHeight)
 			return false;
@@ -2947,9 +3550,8 @@ bool Waypoint::IsNodeReachableAnalyze(const Vector& src, const Vector& destinati
 
 	TraceResult tr;
 
-	// destination node cannot be above allowed analyze jump height.
-	const float jumpHeight = GetAnalyzeJumpHeight(g_hostEntity);
-	if (destination.z > src.z + jumpHeight)
+	// is dest node higher than src and beyond jump capability?
+	if (destination.z > src.z + GetAnalyzeJumpHeight(g_hostEntity))
 	{
 		Vector sourceNew = destination;
 		Vector destinationNew = destination;
@@ -3053,7 +3655,7 @@ char* Waypoint::GetWaypointInfo(const int16_t id)
 		}
 	}
 	
-	snprintf(messageBuffer, sizeof(messageBuffer), "%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s", 
+	snprintf(messageBuffer, sizeof(messageBuffer), "%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s", 
 		(!path->flags && !jumpPoint) ? "(none)" : "", 
 		path->flags & WAYPOINT_LIFT ? "LIFT " : "", 
 		path->flags & WAYPOINT_CROUCH ? "CROUCH " : "", 
@@ -3078,8 +3680,6 @@ char* Waypoint::GetWaypointInfo(const int16_t id)
 		path->flags & WAYPOINT_FALLRISK ? "FALL RISK " : "",
 		path->flags & WAYPOINT_SPECIFICGRAVITY ? "SPECIFIC GRAVITY " : "",
 		path->flags & WAYPOINT_WAITUNTIL ? "WAIT UNTIL GROUND " : "",
-		path->flags & WAYPOINT_WAIT ? "WAIT " : "",
-		path->flags & WAYPOINT_LEAVE ? "LEAVE " : "",
 		path->flags & WAYPOINT_HELICOPTER ? "HELICOPTER " : "",
 		path->flags & WAYPOINT_ONLYONE ? "ONLY ONE BOT " : "");
 
@@ -3160,11 +3760,6 @@ inline int GetFacingDistance(const int16_t& start, const int16_t& goal)
 inline int GetDirectDistance(const int16_t& start, const int16_t& goal)
 {
 	return static_cast<int>(GetVectorDistanceSSE(g_waypoint->GetPath(start)->origin, g_waypoint->GetPath(goal)->origin));
-}
-
-inline int GetHeightDifference(const int16_t& start, const int16_t& goal)
-{
-	return static_cast<int>(g_waypoint->GetPath(goal)->origin.z - g_waypoint->GetPath(start)->origin.z);
 }
 
 void Waypoint::ShowWaypointMsg(void)
@@ -3258,10 +3853,6 @@ void Waypoint::ShowWaypointMsg(void)
 							nodeColor = Color(255, 255, 0, 255);
 						else if (m_paths[i].flags & WAYPOINT_WAITUNTIL)
 							nodeColor = Color(0, 0, 255, 255);
-						else if (m_paths[i].flags & WAYPOINT_WAIT)
-							nodeColor = Color(255, 215, 0, 255);
-						else if (m_paths[i].flags & WAYPOINT_LEAVE)
-							nodeColor = Color(255, 140, 0, 255);
 
 						// colorize additional flags
 						Color nodeFlagColor = Color(0, 0, 0, 0);
@@ -3289,10 +3880,6 @@ void Waypoint::ShowWaypointMsg(void)
 							nodeFlagColor = Color(128, 0, 255, 255);
 						else if (m_paths[i].flags & WAYPOINT_WAITUNTIL)
 							nodeFlagColor = Color(250, 75, 150, 255);
-						else if (m_paths[i].flags & WAYPOINT_WAIT)
-							nodeFlagColor = Color(255, 215, 0, 255);
-						else if (m_paths[i].flags & WAYPOINT_LEAVE)
-							nodeFlagColor = Color(255, 140, 0, 255);
 
 						nodeColor.alpha = 255;
 						nodeFlagColor.alpha = 255;
@@ -3477,8 +4064,7 @@ void Waypoint::ShowWaypointMsg(void)
 					"	  Waypoint %d of %d, Radius: %d\n"
 					"	  Waypoint Flags: %s\n"
 					"	  Pathfinding Distance: %i\n"
-					"	  Direct Line Distance: %i\n"
-					"	  Height Difference: %+i\n", m_cacheWaypointIndex, g_numWaypoints, m_paths[m_cacheWaypointIndex].radius, GetWaypointInfo(m_cacheWaypointIndex), GetFacingDistance(nearestIndex, m_cacheWaypointIndex), GetDirectDistance(nearestIndex, m_cacheWaypointIndex), GetHeightDifference(nearestIndex, m_cacheWaypointIndex));
+					"	  Direct Line Distance: %i\n", m_cacheWaypointIndex, g_numWaypoints, m_paths[m_cacheWaypointIndex].radius, GetWaypointInfo(m_cacheWaypointIndex), GetFacingDistance(nearestIndex, m_cacheWaypointIndex), GetDirectDistance(nearestIndex, m_cacheWaypointIndex));
 
 				if (writtenChars > 0)
 				{
@@ -3502,8 +4088,7 @@ void Waypoint::ShowWaypointMsg(void)
 					"	  Waypoint %d of %d, Radius: %d\n"
 					"	  Waypoint Flags: %s\n"
 					"	  Pathfinding Distance: %i\n"
-					"	  Direct Line Distance: %i\n"
-					"	  Height Difference: %+i\n", m_facingAtIndex, g_numWaypoints, m_paths[m_facingAtIndex].radius, GetWaypointInfo(m_facingAtIndex), GetFacingDistance(nearestIndex, m_facingAtIndex), GetDirectDistance(nearestIndex, m_facingAtIndex), GetHeightDifference(nearestIndex, m_facingAtIndex));
+					"	  Direct Line Distance: %i\n", m_facingAtIndex, g_numWaypoints, m_paths[m_facingAtIndex].radius, GetWaypointInfo(m_facingAtIndex), GetFacingDistance(nearestIndex, m_facingAtIndex), GetDirectDistance(nearestIndex, m_facingAtIndex));
 
 				if (writtenChars > 0)
 				{
@@ -3633,51 +4218,6 @@ bool Waypoint::NodesValid(void)
 	return haveError ? false : true;
 }
 
-inline void CreateNext(const Vector& origin)
-{
-	const float range = ebot_analyze_distance.GetFloat();
-	Vector Next;
-	int8_t dir;
-	for (dir = 1; dir < 4; dir++)
-	{
-		switch (dir)
-		{
-			case 1:
-			{
-				Next.x = origin.x + range;
-				Next.y = origin.y;
-				Next.z = origin.z;
-				break;
-			}
-			case 2:
-			{
-				Next.x = origin.x - range;
-				Next.y = origin.y;
-				Next.z = origin.z;
-				break;
-			}
-			case 3:
-			{
-				Next.x = origin.x;
-				Next.y = origin.y + range;
-				Next.z = origin.z;
-				break;
-			}
-			case 4:
-			{
-				Next.x = origin.x;
-				Next.y = origin.y - range;
-				Next.z = origin.z;
-				break;
-			}
-		}
-
-		CreateLadderWaypoint(Next);
-	}
-
-	g_analyzeputrequirescrouch = false;
-}
-
 // this function creates basic waypoint types on map - raeyid was here :)
 void Waypoint::CreateBasic(void)
 {
@@ -3712,30 +4252,31 @@ void Waypoint::CreateBasic(void)
 		TraceHull(down, up - Vector(0.0f, 0.0f, 1000.0f), TraceIgnore::Monsters, point_hull, g_hostEntity, &tr);
 		up = tr.vecEndPos;
 
-		Vector pointOrigin = up + Vector(0.0f, 0.0f, 39.0f);
-		m_isOnLadder = true;
+			Vector pointOrigin = up + Vector(0.0f, 0.0f, 39.0f);
+			m_isOnLadder = true;
 
-		do
-		{
+			do
+			{
+				if (FindNearestSlow(pointOrigin, 50.0f) == -1)
+				{
+					g_analyzeputrequirescrouch = CheckCrouchRequirement(pointOrigin);
+					Add(-1, pointOrigin);
+				}
+
+				pointOrigin.z += 160.0f;
+			} while (pointOrigin.z < down.z - 40.0f);
+
+			pointOrigin = down + Vector(0.0f, 0.0f, 38.0f);
+
 			if (FindNearestSlow(pointOrigin, 50.0f) == -1)
 			{
+				g_analyzeputrequirescrouch = CheckCrouchRequirement(pointOrigin);
 				Add(-1, pointOrigin);
-				CreateNext(pointOrigin);
 			}
 
-			pointOrigin.z += 160.0f;
-		} while (pointOrigin.z < down.z - 40.0f);
-
-		pointOrigin = down + Vector(0.0f, 0.0f, 38.0f);
-
-		if (FindNearestSlow(pointOrigin, 50.0f) == -1)
-		{
-			Add(-1, pointOrigin);
-			CreateNext(pointOrigin);
+			m_isOnLadder = false;
+			g_analyzeputrequirescrouch = false;
 		}
-
-		m_isOnLadder = false;
-	}
 
 	// then terrortist spawnpoints
 	while (!FNullEnt(ent = FIND_ENTITY_BY_CLASSNAME(ent, "info_player_deathmatch")))
@@ -3846,6 +4387,47 @@ void Waypoint::EraseFromBucket(const Vector& pos, const int16_t index)
 			return;
 		}
 	}
+}
+
+void Waypoint::CollectNearbyWaypoints(const Vector& pos, const float radius, CArray<int16_t>& out)
+{
+	out.Destroy();
+	if (g_numWaypoints < 1)
+		return;
+
+	const float bucketSize = static_cast<float>(MAX_WAYPOINT_BUCKET_SIZE);
+	if (radius > 0.0f && g_numWaypoints >= 165 && bucketSize > 0.0f)
+	{
+		int bucketSpan = static_cast<int>(cceilf(radius / bucketSize));
+		bucketSpan = cclamp(bucketSpan, 1, 3);
+
+		for (int dx = -bucketSpan; dx <= bucketSpan; dx++)
+		{
+			for (int dy = -bucketSpan; dy <= bucketSpan; dy++)
+			{
+				for (int dz = -bucketSpan; dz <= bucketSpan; dz++)
+				{
+					Vector probe = Vector(pos.x + static_cast<float>(dx) * bucketSize, pos.y + static_cast<float>(dy) * bucketSize, pos.z + static_cast<float>(dz) * bucketSize);
+					CArray<int16_t>& bucket = GetWaypointsInBucket(probe);
+					if (bucket.IsEmpty())
+						continue;
+
+					int16_t i;
+					for (i = 0; i < bucket.Size(); i++)
+					{
+						if (IsValidWaypoint(bucket[i]))
+							out.Push(bucket[i]);
+					}
+				}
+			}
+		}
+	}
+
+	if (!out.IsEmpty())
+		return;
+
+	for (int16_t i = 0; i < g_numWaypoints; i++)
+		out.Push(i);
 }
 
 static CArray<int16_t>empty{0};

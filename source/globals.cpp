@@ -37,7 +37,7 @@ bool g_isFakeCommand = false;
 bool g_isMatrixReady = false;
 bool g_isMatrixCalculating = false;
 
-float g_autoPathDistance = 250.0f;
+float g_autoPathDistance = 160.0f;
 float g_fakePingUpdate = 0.0f;
 float g_DelayTimer = 0.0f;
 float g_fakeCommandTimer = 0.0f;

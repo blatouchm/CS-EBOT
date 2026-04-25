@@ -52,12 +52,18 @@ static inline bool IsDoubleJumpEnabledForBot(const Bot* bot) {
                             : ebot_human_double_jump.GetBool();
 }
 
+static inline bool IsMaxJumpHeightUnlimited(void) {
+  return Math::FltEqual(ebot_max_jump_height.GetFloat(), -1.0f);
+}
+
 static inline float GetBaseJumpHeightForBot(const Bot* bot) {
   if (!bot || !bot->pev)
     return 0.0f;
 
   const float gravity = bot->pev->gravity > 0.0f ? bot->pev->gravity : 1.0f;
-  return ebot_max_jump_height.GetFloat() / gravity;
+  const float configuredJumpHeight = ebot_max_jump_height.GetFloat();
+  const float jumpHeight = IsMaxJumpHeightUnlimited() ? 65.0f : configuredJumpHeight;
+  return jumpHeight / gravity;
 }
 
 static inline float GetMaxJumpHeightForBot(const Bot* bot) {
@@ -87,6 +93,9 @@ static inline bool IsJumpLinkReachableForBot(const Vector& src, const Vector& de
                                              const uint16_t connectionFlags,
                                              const float maxJumpHeight) {
   if (!(connectionFlags & PATHFLAG_JUMP))
+    return true;
+
+  if (IsMaxJumpHeightUnlimited())
     return true;
 
   if (dest.z <= src.z)
@@ -1336,7 +1345,7 @@ void Bot::DoWaypointNav(void) {
       else if (m_moveSpeed > pev->maxspeed)
         m_moveSpeed = pev->maxspeed;
     }
-
+    //dist to current wp
     if (dist < squaredf(24.0f))
       next = true;
   } else {
@@ -1390,6 +1399,31 @@ void Bot::DoWaypointNav(void) {
     // jump destination; otherwise current can switch too early.
     if (m_navNode.HasNext()) {
       const int16_t nextIndex = m_navNode.Next();
+      const Path *const nextPath = g_waypoint->GetPath(nextIndex);
+      const bool nextIsLadder = nextPath && ((nextPath->flags & WAYPOINT_LADDER) != 0);
+
+      // While attached to ladder, do not jump between distant ladder columns.
+      // This prevents accidental switch to a waypoint on an opposite ladder.
+      if (IsOnLadder() && (m_waypoint.flags & WAYPOINT_LADDER) && nextIsLadder) {
+        constexpr float ladderColumnMaxOffset = 56.0f;
+        const bool differentLadderColumn =
+            cabsf(m_waypoint.origin.x - nextPath->origin.x) > ladderColumnMaxOffset ||
+            cabsf(m_waypoint.origin.y - nextPath->origin.y) > ladderColumnMaxOffset;
+        if (differentLadderColumn) {
+          const float distCurrentSq = (pev->origin - m_waypoint.origin).GetLengthSquared();
+          const float distNextSq = (pev->origin - nextPath->origin).GetLengthSquared();
+
+          // Before the jump, keep current node; after jump, allow switch once
+          // we are actually closer to the target ladder node.
+          if (distNextSq > squaredf(48.0f) && distNextSq >= distCurrentSq)
+            next = false;
+        }
+      }
+
+
+  
+      //If the current waypoint is a ladder and the next waypoint requires a jump, the bot cannot immediately switch to that next waypoint if it is too far away.
+      //Special logic has been added for this jump, which must be executed first.
       for (int16_t i = 0; i < pMax; i++) {
         if (m_waypoint.index[i] != nextIndex)
           continue;
@@ -1397,12 +1431,26 @@ void Bot::DoWaypointNav(void) {
         const bool ladderJumpLink =
             (IsOnLadder() || (m_waypoint.flags & WAYPOINT_LADDER)) &&
             ((m_waypoint.connectionFlags[i] & PATHFLAG_JUMP) != 0);
+
         if (ladderJumpLink) {
-          const Path *const nextPath = g_waypoint->GetPath(nextIndex);
-          if ((pev->origin - nextPath->origin).GetLengthSquared() >
-              squaredf(24.0f))
+          if (!nextPath || (pev->origin - nextPath->origin).GetLengthSquared() > squaredf(24.0f))
             next = false;
         }
+
+
+        // For ladder -> ground transitions without jump links, allow switching
+        // only after reaching the next waypoint height (or above it).
+        if (!ladderJumpLink && IsOnLadder() && nextPath && (m_waypoint.flags & WAYPOINT_LADDER) && !nextIsLadder) {
+
+            constexpr float ladderExitHeightTolerance = 2.0f;
+            const bool sameWaypointHeight =
+                cabsf(m_waypoint.origin.z - nextPath->origin.z) <=
+                ladderExitHeightTolerance;
+            if(sameWaypointHeight && (pev->origin.z + ladderExitHeightTolerance) < nextPath->origin.z)
+                next = false;
+        }
+
+
         break;
       }
     }
@@ -1890,32 +1938,43 @@ inline const float GF_CostHuman(const int16_t &index, const int16_t &parent,
     }
   }
 
-  float distance;
-  float totalDistance = 0.0f;
-  int8_t countCache = 0;
+  const float baseCost = HF_Auto(index, parent);
+  const float closeRadius =
+      squaredf(static_cast<float>(pathCache.radius) + 160.0f);
+  const float veryCloseRadius =
+      squaredf(static_cast<float>(pathCache.radius) + 64.0f);
+
+  float dangerScore = 0.0f;
+  int8_t closeZombieCount = 0;
   for (const auto &client : g_clients) {
     if (!(client.flags & CFLAG_USED) || !(client.flags & CFLAG_ALIVE) ||
         team == client.team || !IsZombieEntity(client.ent))
       continue;
 
-    distance = ((client.ent->v.origin +
-                 client.ent->v.velocity * g_pGlobals->frametime) -
-                pathCache.origin)
-                   .GetLengthSquared();
-    if (distance < squaredi(static_cast<int>(pathCache.radius) + 128))
-      countCache++;
+    const float distance = ((client.ent->v.origin +
+                             client.ent->v.velocity * g_pGlobals->frametime) -
+                            pathCache.origin)
+                               .GetLengthSquared();
+    if (distance > closeRadius)
+      continue;
 
-    totalDistance += distance;
+    closeZombieCount++;
+    dangerScore += (closeRadius - distance) / closeRadius;
+
+    // Extra push away when a zombie is right on top of this waypoint.
+    if (distance < veryCloseRadius)
+      dangerScore += 1.0f;
   }
 
-  if (countCache && totalDistance > 0.0f)
-    return (HF_Auto(index, parent) * static_cast<float>(countCache)) +
-           totalDistance;
+  if (closeZombieCount > 0) {
+    const float crowdPenalty = static_cast<float>(closeZombieCount) * 3.0f;
+    return baseCost * (1.0f + crowdPenalty + (dangerScore * 2.0f));
+  }
 
   if (parentFlags & WAYPOINT_JUMP)
-    return HF_Auto(index, parent) * 2.0f;
+    return baseCost * 2.0f;
 
-  return HF_Auto(index, parent);
+  return baseCost;
 }
 
 inline const float GF_CostCareful(const int16_t &index, const int16_t &parent,
@@ -2114,7 +2173,12 @@ void Bot::FindPath(int16_t &srcIndex, int16_t &destIndex) {
     }
   }
 
-  if (ebot_force_shortest_path.GetBool() || g_numWaypoints > 2048) {
+  const bool useZombieAwareCost =
+      ebot_zombies_as_path_cost.GetBool() && !m_isZombieBot;
+  const bool useFastShortestPath =
+      ebot_force_shortest_path.GetBool() ||
+      g_numWaypoints > 2048;
+  if (useFastShortestPath) {
     FindShortestPath(srcIndex, destIndex);
     return;
   }
@@ -2140,7 +2204,7 @@ void Bot::FindPath(int16_t &srcIndex, int16_t &destIndex) {
   const float (*gcalc)(const int16_t &, const int16_t &, const uint32_t &,
                        const int8_t &, const float &, const bool &) = nullptr;
 
-  if (ebot_zombies_as_path_cost.GetBool() && !m_isZombieBot)
+  if (useZombieAwareCost)
     gcalc = GF_CostHuman;
   else if (m_personality == Personality::Careful)
     gcalc = GF_CostCareful;
@@ -2243,7 +2307,7 @@ void Bot::FindPath(int16_t &srcIndex, int16_t &destIndex) {
     for (i = 0; i < pMax; i++) {
       self = currPath.index[i];
       if (!IsValidWaypoint(self))
-        break;
+        continue;
 
       const Path &selfPath = gP->m_paths[self];
       if (!IsJumpLinkReachableForBot(currPath.origin, selfPath.origin,
@@ -2439,7 +2503,7 @@ void Bot::FindShortestPath(int16_t &srcIndex, int16_t &destIndex) {
     for (i = 0; i < pMax; i++) {
       self = currPath.index[i];
       if (!IsValidWaypoint(self))
-        break;
+        continue;
 
       const Path &selfPath = gP->m_paths[self];
       if (!IsJumpLinkReachableForBot(currPath.origin, selfPath.origin,
@@ -2571,7 +2635,7 @@ void Bot::FindEscapePath(int16_t &srcIndex, const Vector &dangerOrigin) {
     for (i = 0; i < pMax; i++) {
       neighborIndex = currPath.index[i];
       if (!IsValidWaypoint(neighborIndex))
-        break;
+        continue;
 
       const Path &neighborPath = gP->m_paths[neighborIndex];
       if (!IsJumpLinkReachableForBot(currPath.origin, neighborPath.origin,

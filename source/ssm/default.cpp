@@ -251,19 +251,12 @@ void Bot::DefaultUpdate(void)
 				{
 					// if our enemy is closer to this waypoint, just skip it otherwise we will get infected
 					const int16_t firstIndex = m_navNode.First();
-					const int16_t secondIndex = m_navNode.Next();
-					if (IsValidWaypoint(firstIndex) && IsValidWaypoint(secondIndex))
+					if (IsValidWaypoint(firstIndex))
 					{
 						const Path* const firstPath = g_waypoint->GetPath(firstIndex);
-						const Path* const secondPath = g_waypoint->GetPath(secondIndex);
-						const bool plainFirst = firstPath && firstPath->flags == 0;
-						const bool plainSecond = secondPath && secondPath->flags == 0;
-						const bool secondVisible = secondPath && IsVisible(secondPath->origin, m_myself);
-						const bool enemyCloserToFirst = firstPath &&
+						if (firstPath &&
 							(firstPath->origin - m_enemyOrigin).GetLengthSquared() <
-							(firstPath->origin - pev->origin).GetLengthSquared();
-
-						if (plainFirst && plainSecond && secondVisible && enemyCloserToFirst)
+							(firstPath->origin - pev->origin).GetLengthSquared())
 							m_navNode.Shift();
 					}
 
@@ -404,9 +397,9 @@ void Bot::DefaultUpdate(void)
 				m_currentGoalIndex = static_cast<int16_t>(crandomint(0, g_numWaypoints - 1));
 		}
 		else
-			FindShortestPath(m_currentWaypointIndex, m_currentGoalIndex);
+			FindPath(m_currentWaypointIndex, m_currentGoalIndex);
 	}
-}
+	}
 
 void Bot::DefaultEnd(void)
 {

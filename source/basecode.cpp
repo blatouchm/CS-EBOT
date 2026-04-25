@@ -612,7 +612,26 @@ void Bot::BaseUpdate(void) {
       else {
         m_isSlowThink = true;
         CheckSlowThink();
-        m_slowThinkTimer = tempTimer + crandomfloat(0.9f, 1.1f);
+
+        float slowThinkMin = 0.9f;
+        float slowThinkMax = 1.1f;
+
+        if (!m_isZombieBot && m_hasEnemiesNear) {
+          const bool hasValidEnemy =
+              !FNullEnt(m_nearestEnemy) && IsAlive(m_nearestEnemy) &&
+              GetTeam(m_nearestEnemy) != m_team;
+          const bool boostSlowThink =
+              hasValidEnemy &&
+              (pev->origin - m_nearestEnemy->v.origin).GetLengthSquared2D() <=
+                  squaredf(300.0f);
+
+          if (boostSlowThink) {
+            slowThinkMin = 0.30f;
+            slowThinkMax = 0.35f;
+          }
+        }
+
+        m_slowThinkTimer = tempTimer + crandomfloat(slowThinkMin, slowThinkMax);
       }
     }
   } else {
