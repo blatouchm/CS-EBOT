@@ -1055,20 +1055,8 @@ inline void SanitizeLadderConnectionFlags(void)
 			if (!(g_waypoint->m_paths[dest].flags & WAYPOINT_LADDER))
 				continue;
 
-			const Vector& srcOrigin = g_waypoint->m_paths[i].origin;
-			const Vector& destOrigin = g_waypoint->m_paths[dest].origin;
-			const bool sameLadderColumn = IsSameLadderColumn(srcOrigin, destOrigin);
-			if (sameLadderColumn)
-			{
-				g_waypoint->m_paths[i].connectionFlags[c] &= static_cast<uint16_t>(~(PATHFLAG_JUMP | PATHFLAG_DOUBLE));
-			}
-			else
-			{
-				// Cross-ladder transitions may legitimately require jump links.
-				if (g_waypoint->MustJump(srcOrigin, destOrigin) &&
-					IsGeneratedJumpAllowedByDistance(srcOrigin, destOrigin))
-					g_waypoint->m_paths[i].connectionFlags[c] |= PATHFLAG_JUMP;
-			}
+			// Analyzer-generated ladder links should not use jump/double-jump flags.
+			g_waypoint->m_paths[i].connectionFlags[c] &= static_cast<uint16_t>(~(PATHFLAG_JUMP | PATHFLAG_DOUBLE));
 		}
 	}
 
@@ -1108,28 +1096,25 @@ inline void FixWaypoints(void)
 		for (C = 0; C < Const_MaxPathIndex; C++)
 		{
 			const int16_t destIndex = g_waypoint->m_paths[i].index[C];
-			if (IsValidWaypoint(destIndex))
-			{
-				const Vector& srcOrigin = g_waypoint->m_paths[i].origin;
-				const Vector& destOrigin = g_waypoint->m_paths[destIndex].origin;
-				const bool srcLadder = (g_waypoint->m_paths[i].flags & WAYPOINT_LADDER) != 0;
-				const bool destLadder = (g_waypoint->m_paths[destIndex].flags & WAYPOINT_LADDER) != 0;
-				const bool sameLadderColumn = srcLadder && destLadder && IsSameLadderColumn(srcOrigin, destOrigin);
+				if (IsValidWaypoint(destIndex))
+				{
+					const Vector& srcOrigin = g_waypoint->m_paths[i].origin;
+					const Vector& destOrigin = g_waypoint->m_paths[destIndex].origin;
+					const bool srcLadder = (g_waypoint->m_paths[i].flags & WAYPOINT_LADDER) != 0;
+					const bool destLadder = (g_waypoint->m_paths[destIndex].flags & WAYPOINT_LADDER) != 0;
 
-					const bool ladderToLadder = srcLadder && destLadder;
-					if (!ladderToLadder && (srcOrigin.z + 72.0f) < destOrigin.z)
-						g_waypoint->DeletePathByIndex(i, destIndex);
-					else if (g_waypoint->MustJump(srcOrigin, destOrigin))
-					{
-						// Keep vertical links on the same ladder column even when
-						// the vertical gap is larger than generic jump limits.
-						if (sameLadderColumn)
-							g_waypoint->m_paths[i].connectionFlags[C] &= static_cast<uint16_t>(~(PATHFLAG_JUMP | PATHFLAG_DOUBLE));
-						else if (IsGeneratedJumpAllowedByDistance(srcOrigin, destOrigin))
-							g_waypoint->m_paths[i].connectionFlags[C] |= PATHFLAG_JUMP;
-						else
+						const bool ladderToLadder = srcLadder && destLadder;
+						if (!ladderToLadder && (srcOrigin.z + 72.0f) < destOrigin.z)
 							g_waypoint->DeletePathByIndex(i, destIndex);
-					}
+						else if (g_waypoint->MustJump(srcOrigin, destOrigin))
+						{
+							if (srcLadder || destLadder)
+								g_waypoint->m_paths[i].connectionFlags[C] &= static_cast<uint16_t>(~(PATHFLAG_JUMP | PATHFLAG_DOUBLE));
+							else if (IsGeneratedJumpAllowedByDistance(srcOrigin, destOrigin))
+								g_waypoint->m_paths[i].connectionFlags[C] |= PATHFLAG_JUMP;
+							else
+								g_waypoint->DeletePathByIndex(i, destIndex);
+						}
 			}
 		}
 	}
@@ -1880,14 +1865,14 @@ void Waypoint::Add(const int flags, const Vector& waypointOrigin, const float an
 		}
 		else
 		{
-			// Non-ladder waypoint near a ladder should only link to the first
-			// reachable endpoint ladder node (bottom or top), never to middle nodes.
-			int16_t lowerLadder = -1, upperLadder = -1, preferredLadder = -1;
-			float lowerLadderZ = 9999999.0f, upperLadderZ = -9999999.0f;
-			float lowerLadderDist2D = 9999999.0f, upperLadderDist2D = 9999999.0f;
-			float dx, dy, dist2D;
-			const float ladderMaxOffsetXY = 72.0f;
-			const float ladderEndpointMaxDeltaZ = 96.0f;
+				// Link non-ladder nodes to the ladder node that best matches their
+				// height, including middle ladder segments.
+				int16_t preferredLadder = -1;
+				float preferredLadderDz = 9999999.0f;
+				float preferredLadderDist2D = 9999999.0f;
+				float dx, dy, dist2D, dz;
+				const float ladderMaxOffsetXY = 72.0f;
+				const float ladderNodeMaxDeltaZ = 96.0f;
 
 			for (i = 0; i < nearbyWaypoints.Size(); i++)
 			{
@@ -1898,52 +1883,28 @@ void Waypoint::Add(const int flags, const Vector& waypointOrigin, const float an
 				if (!(m_paths[candidate].flags & WAYPOINT_LADDER))
 					continue;
 
-				dx = m_paths[candidate].origin.x - newOrigin.x;
-				dy = m_paths[candidate].origin.y - newOrigin.y;
-				if (cabsf(dx) > ladderMaxOffsetXY || cabsf(dy) > ladderMaxOffsetXY)
-					continue;
+					dx = m_paths[candidate].origin.x - newOrigin.x;
+					dy = m_paths[candidate].origin.y - newOrigin.y;
+					if (cabsf(dx) > ladderMaxOffsetXY || cabsf(dy) > ladderMaxOffsetXY)
+						continue;
 
-				dist2D = squaredf(dx) + squaredf(dy);
-				if (m_paths[candidate].origin.z < lowerLadderZ || (m_paths[candidate].origin.z == lowerLadderZ && dist2D < lowerLadderDist2D))
-				{
-					lowerLadder = candidate;
-					lowerLadderZ = m_paths[candidate].origin.z;
-					lowerLadderDist2D = dist2D;
-				}
-
-				if (m_paths[candidate].origin.z > upperLadderZ || (m_paths[candidate].origin.z == upperLadderZ && dist2D < upperLadderDist2D))
-				{
-					upperLadder = candidate;
-					upperLadderZ = m_paths[candidate].origin.z;
-					upperLadderDist2D = dist2D;
-				}
-			}
-
-			if (IsValidWaypoint(lowerLadder) && IsValidWaypoint(upperLadder))
-			{
-				const float dzToLower = cabsf(newOrigin.z - lowerLadderZ);
-				const float dzToUpper = cabsf(newOrigin.z - upperLadderZ);
-				preferredLadder = (dzToLower <= dzToUpper) ? lowerLadder : upperLadder;
-			}
-			else if (IsValidWaypoint(lowerLadder))
-				preferredLadder = lowerLadder;
-			else if (IsValidWaypoint(upperLadder))
-				preferredLadder = upperLadder;
-
-					if (IsValidWaypoint(preferredLadder))
+					dist2D = squaredf(dx) + squaredf(dy);
+					dz = cabsf(newOrigin.z - m_paths[candidate].origin.z);
+					if (dz < preferredLadderDz ||
+						(Math::FltEqual(dz, preferredLadderDz) && dist2D < preferredLadderDist2D))
 					{
-						if (cabsf(newOrigin.z - m_paths[preferredLadder].origin.z) <= ladderEndpointMaxDeltaZ)
-						{
-							const bool connectToLowerEndpoint = (preferredLadder == lowerLadder);
-							const float ladderJumpDistanceThresholdSq = squaredf(60.0f);
-							const float ladderDistanceSq = (newOrigin - m_paths[preferredLadder].origin).GetLengthSquared();
-							const bool useJumpLink = connectToLowerEndpoint && ladderDistanceSq < ladderJumpDistanceThresholdSq;
-							const int ladderLinkType = useJumpLink ? 1 : 0;
-							// Keep jump only for very close links to the bottom ladder endpoint.
-							AddPath(index, preferredLadder, ladderLinkType);
-							AddPath(preferredLadder, index, ladderLinkType);
-						}
+						preferredLadder = candidate;
+						preferredLadderDz = dz;
+						preferredLadderDist2D = dist2D;
 					}
+				}
+
+				if (IsValidWaypoint(preferredLadder) && preferredLadderDz <= ladderNodeMaxDeltaZ)
+				{
+					// Ladder-related auto links must stay non-jump.
+					AddPath(index, preferredLadder, 0);
+					AddPath(preferredLadder, index, 0);
+				}
 
 			// calculate all the paths to this new waypoint
 			for (i = 0; i < nearbyWaypoints.Size(); i++)
@@ -4084,11 +4045,12 @@ void Waypoint::ShowWaypointMsg(void)
 			const int remainingChars = static_cast<int>(sizeof(tempMessage)) - length;
 			if (remainingChars > 0)
 			{
-				writtenChars = snprintf(tempMessage + length, remainingChars, "\n	Facing Waypoint Information:\n\n"
-					"	  Waypoint %d of %d, Radius: %d\n"
-					"	  Waypoint Flags: %s\n"
-					"	  Pathfinding Distance: %i\n"
-					"	  Direct Line Distance: %i\n", m_facingAtIndex, g_numWaypoints, m_paths[m_facingAtIndex].radius, GetWaypointInfo(m_facingAtIndex), GetFacingDistance(nearestIndex, m_facingAtIndex), GetDirectDistance(nearestIndex, m_facingAtIndex));
+					writtenChars = snprintf(tempMessage + length, remainingChars, "\n	Facing Waypoint Information:\n\n"
+						"	  Waypoint %d of %d, Radius: %d\n"
+						"	  Waypoint Flags: %s\n"
+						"	  Height Difference: %+d\n"
+						"	  Pathfinding Distance: %i\n"
+						"	  Direct Line Distance: %i\n", m_facingAtIndex, g_numWaypoints, m_paths[m_facingAtIndex].radius, GetWaypointInfo(m_facingAtIndex), static_cast<int>(croundf(m_paths[m_facingAtIndex].origin.z - m_paths[nearestIndex].origin.z)), GetFacingDistance(nearestIndex, m_facingAtIndex), GetDirectDistance(nearestIndex, m_facingAtIndex));
 
 				if (writtenChars > 0)
 				{

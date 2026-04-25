@@ -2119,6 +2119,10 @@ void ServerActivate(edict_t* pentEdictList, int edictCount, int clientMax)
 	// initialize all config files
 	InitConfig();
 
+	// Reset runtime autopath distance on every map load.
+	// This prevents disabled autopath (0) from leaking into the next map.
+	g_autoPathDistance = 160.0f;
+
 	// do level initialization stuff here...
 	g_waypoint->Initialize();
 	g_waypoint->Load();
