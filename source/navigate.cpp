@@ -37,7 +37,7 @@ ConVar ebot_helicopter_width("ebot_helicopter_width", "54.0");
 ConVar ebot_use_pathfinding_for_avoid("ebot_use_pathfinding_for_avoid", "1");
 ConVar ebot_leap_zombies("ebot_leap_zombies", "0");
 ConVar ebot_debug_jump("ebot_debug_jump", "0");
-ConVar ebot_use_max_jump_height_boost("ebot_use_max_jump_height_boost", "1");
+ConVar ebot_use_max_jump_height_boost("ebot_use_max_jump_height_boost", "0");
 
 extern ConVar ebot_max_jump_height;
 extern ConVar ebot_human_double_jump;
@@ -1258,6 +1258,27 @@ void Bot::DoWaypointNav(void) {
   }
 
   bool next = false;
+  const bool jumpLink = (m_currentTravelFlags & PATHFLAG_JUMP) != 0;
+  bool upwardCrouchJumpLink = false;
+  const bool groundedCrouchJumpTarget =
+      (m_waypoint.flags & WAYPOINT_CROUCH) &&
+      !(m_waypoint.flags & WAYPOINT_LADDER) &&
+      POINT_CONTENTS(m_waypoint.origin) != CONTENTS_WATER;
+  if (jumpLink && groundedCrouchJumpTarget) {
+    if (IsValidWaypoint(m_prevWptIndex[1])) {
+      if (const Path *const sourcePath = g_waypoint->GetPath(m_prevWptIndex[1]))
+        upwardCrouchJumpLink = m_waypoint.origin.z > sourcePath->origin.z + 1.0f;
+    } else
+      upwardCrouchJumpLink = m_waypoint.origin.z > pev->origin.z + 1.0f;
+  }
+
+  auto jumpTargetHeightReached = [&]() -> bool {
+    if (!upwardCrouchJumpLink)
+      return true;
+
+    constexpr float jumpTargetZTolerance = 18.0f;
+    return pev->origin.z >= m_waypoint.origin.z - jumpTargetZTolerance;
+  };
 
   if (IsOnLadder() || m_waypoint.flags & WAYPOINT_LADDER) {
     // special detection if someone is using the ladder (to prevent to have
@@ -1349,9 +1370,10 @@ void Bot::DoWaypointNav(void) {
     if (dist < squaredf(24.0f))
       next = true;
   } else {
-    if (m_waypoint.radius < 50 || (m_currentTravelFlags & PATHFLAG_JUMP)) {
+    if (m_waypoint.radius < 50 || jumpLink) {
       if (pev->flags & FL_DUCKING) {
-        if ((pev->origin - m_destOrigin).GetLengthSquared2D() < squaredf(24.0f))
+        if ((pev->origin - m_destOrigin).GetLengthSquared2D() < squaredf(24.0f) &&
+            jumpTargetHeightReached())
           next = true;
       } else {
         constexpr float MIN_RADIUS = 4.0f;
@@ -1361,7 +1383,8 @@ void Bot::DoWaypointNav(void) {
         const float speed2 = vel.GetLengthSquared2D();
         if (speed2 < 1e-4f) {
           if ((pev->origin - m_destOrigin).GetLengthSquared2D() <
-              checkRadiusSqr)
+                  checkRadiusSqr &&
+              jumpTargetHeightReached())
             next = true;
         } else {
           const Vector origin = pev->origin;
@@ -1372,7 +1395,7 @@ void Bot::DoWaypointNav(void) {
           else {
             const float lookahead = cmaxf(m_pathInterval * 2.0f, 0.12f) *
                                     ((m_waypoint.radius < 5 ||
-                                      (m_currentTravelFlags & PATHFLAG_JUMP))
+                                      jumpLink)
                                          ? 1.5f
                                          : 1.0f);
             if (t > lookahead)
@@ -1380,10 +1403,12 @@ void Bot::DoWaypointNav(void) {
           }
 
           const Vector closest = origin + vel * t;
-          if ((closest - m_destOrigin).GetLengthSquared2D() < checkRadiusSqr)
+          if ((closest - m_destOrigin).GetLengthSquared2D() < checkRadiusSqr &&
+              jumpTargetHeightReached())
             next = true;
           else if ((origin - m_destOrigin).GetLengthSquared2D() <
-                   squaredf(cmaxf(static_cast<float>(m_waypoint.radius), 4.0f)))
+                       squaredf(cmaxf(static_cast<float>(m_waypoint.radius), 4.0f)) &&
+                   jumpTargetHeightReached())
             next = true;
         }
       }
