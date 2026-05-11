@@ -634,6 +634,8 @@ void Bot::BaseUpdate(void) {
   }
 
   const float tempTimer = engine->GetTime();
+  ApplyPendingHealthMultiplier(tempTimer);
+
   if (m_baseUpdate < tempTimer) {
     // avoid frame drops
     m_frameInterval = tempTimer - m_frameDelay;
@@ -1111,8 +1113,15 @@ void Bot::CheckSlowThink(void) {
     m_nearestEnemy = nullptr;
   } else {
     m_team = GetTeam(m_myself);
-    if (m_isZombieBot != IsZombieEntity(m_myself)) {
-      m_isZombieBot = IsZombieEntity(m_myself);
+    const bool isZombieEntity = IsZombieEntity(m_myself);
+    if (m_isZombieBot != isZombieEntity) {
+      const bool wasZombie = m_isZombieBot;
+      m_isZombieBot = isZombieEntity;
+      if (!wasZombie && m_isZombieBot)
+        ScheduleHealthMultiplier();
+      else if (!m_isZombieBot)
+        m_healthMultiplierTime = 0.0f;
+
       m_waitForLeaveWaypoint = false;
       m_navNode.Clear();
       FindWaypoint();

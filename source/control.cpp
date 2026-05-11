@@ -39,6 +39,9 @@ ConVar ebot_keep_slots("ebot_keep_slots", "1");
 ConVar ebot_kill_bots_when_all_humans_dead("ebot_kill_bots_when_all_humans_dead", "0");
 ConVar ebot_rusher_no_camp_percent("ebot_rusher_no_camp_percent", "0");
 
+extern ConVar ebot_zombie_hp_multiplier;
+extern ConVar ebot_hp_multiplier_delay;
+
 // this is a bot manager class constructor
 BotControl::BotControl(void)
 {
@@ -876,6 +879,26 @@ Bot::~Bot(void)
 	}
 }
 
+void Bot::ScheduleHealthMultiplier(void)
+{
+	m_healthMultiplierTime = engine->GetTime() + cmaxf(ebot_hp_multiplier_delay.GetFloat(), 0.0f);
+}
+
+void Bot::ApplyPendingHealthMultiplier(const float time)
+{
+	if (m_healthMultiplierTime <= 0.0f || m_healthMultiplierTime > time)
+		return;
+
+	m_healthMultiplierTime = 0.0f;
+
+	if (!pev || !m_isAlive || !IsAlive(m_myself) || !m_isZombieBot)
+		return;
+
+	const float multiplier = cmaxf(ebot_zombie_hp_multiplier.GetFloat(), 0.0f);
+
+	pev->health *= multiplier;
+}
+
 // this function initializes a bot after creation & at the start of each round
 void Bot::NewRound(void)
 {
@@ -903,6 +926,9 @@ void Bot::NewRound(void)
 	m_numSpawns++;
 	m_sidePreference = crandomfloat(-1.0f, 1.0f);
 	const float time2 = engine->GetTime();
+	m_healthMultiplierTime = 0.0f;
+	if (m_isAlive && m_isZombieBot)
+		ScheduleHealthMultiplier();
 
 	// initialize msec value
 	m_aimInterval = time2;

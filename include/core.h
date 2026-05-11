@@ -655,7 +655,7 @@ public:
   bool m_notStarted{false};     // team/class not chosen yet
   bool m_isZombieBot{false};    // checks bot if zombie
   bool m_skipHumanCampThisRound{false}; // human bot ignores camp waypoints for this round
-  float m_infectDelayTime{ 0.0f }; // delay after human -> zombie infection
+  float m_healthMultiplierTime{0.0f}; // pending spawn/infection HP multiplier
   bool m_jumpReady{false};      // get ready for jump at next frame
   bool m_waitForLanding{false}; // wait until land somewhere
   bool m_waitForLeaveWaypoint{false}; // hold movement after WAIT until LEAVE is reached
@@ -833,6 +833,8 @@ public:
 
   void LookAt(const Vector &origin, const Vector &velocity = nullvec);
   void NewRound(void);
+  void ScheduleHealthMultiplier(void);
+  void ApplyPendingHealthMultiplier(const float time);
 
   void CheckTouchEntity(edict_t *entity);
   void TakeBlinded(const Vector &fade, const int alpha);
