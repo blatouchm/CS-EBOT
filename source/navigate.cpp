@@ -29,7 +29,6 @@ ConVar ebot_zombies_as_path_cost("ebot_zombie_count_as_path_cost", "1");
 ConVar ebot_has_semiclip("ebot_has_semiclip", "0");
 ConVar ebot_breakable_health_limit("ebot_breakable_health_limit", "3000.0");
 ConVar ebot_touch_breakable_classnames("ebot_touch_breakable_classnames", "");
-ConVar ebot_touch_breakable_block_check("ebot_touch_breakable_block_check", "1");
 ConVar ebot_force_shortest_path("ebot_force_shortest_path", "0");
 ConVar ebot_pathfinder_seed_min("ebot_pathfinder_seed_min", "0.9");
 ConVar ebot_pathfinder_seed_max("ebot_pathfinder_seed_max", "1.1");
@@ -169,6 +168,22 @@ static inline bool IsExtraTouchBreakableClass(const char* className) {
     s_touchBreakableClassCache.RefreshIfNeeded(
         ebot_touch_breakable_classnames.GetString());
     return s_touchBreakableClassCache.Contains(className);
+}
+
+static inline bool IsWaypointUnderBreakable(const edict_t* entity,
+    const Vector& waypointOrigin) {
+    if (FNullEnt(entity))
+        return false;
+
+    constexpr float boundsTolerance = 8.0f;
+    constexpr float heightTolerance = 1.0f;
+    if (waypointOrigin.z > entity->v.absmin.z + heightTolerance)
+        return false;
+
+    return waypointOrigin.x >= entity->v.absmin.x - boundsTolerance &&
+        waypointOrigin.x <= entity->v.absmax.x + boundsTolerance &&
+        waypointOrigin.y >= entity->v.absmin.y - boundsTolerance &&
+        waypointOrigin.y <= entity->v.absmax.y + boundsTolerance;
 }
 
 static inline bool IsEnemyZombieClientForBot(const Clients &client,
@@ -2700,13 +2715,14 @@ void Bot::CheckTouchEntity(edict_t* entity) {
 
     if (!isBlocking) {
         m_breakableJumpTime = 0.0f;
-        m_touchBlockOrigin = nullvec;
-        m_touchBlockTime = 0.0f;
         return;
     }
 
     const float time2 = engine->GetTime();
+    const bool waypointUnderBreakable =
+        IsWaypointUnderBreakable(entity, m_waypoint.origin);
     const bool canJumpOverBreakableWaypoint =
+        !waypointUnderBreakable &&
         !(m_waypoint.flags & (WAYPOINT_CROUCH | WAYPOINT_LADDER)) &&
         !IsOnLadder();
     const bool triedJumpOverBreakableRecently =
@@ -2732,30 +2748,6 @@ void Bot::CheckTouchEntity(edict_t* entity) {
             TryStartDoubleJump(this, m_waypoint.origin);
             return;
         }
-    }
-
-    const float botCenterZ = (pev->absmin.z + pev->absmax.z) * 0.5f;
-    const bool entityAboveBot = entity->v.absmin.z > botCenterZ;
-    if (ebot_touch_breakable_block_check.GetBool() && !entityAboveBot) {
-        if (m_touchBlockTime <= 0.0f) {
-            m_touchBlockOrigin = pev->origin;
-            m_touchBlockTime = time2;
-            return;
-        }
-
-        if ((pev->origin - m_touchBlockOrigin).GetLengthSquared() >
-            squaredf(20.0f)) {
-            m_touchBlockOrigin = pev->origin;
-            m_touchBlockTime = time2;
-            return;
-        }
-
-        if (time2 - m_touchBlockTime < 1.0f)
-            return;
-    }
-    else {
-        m_touchBlockOrigin = nullvec;
-        m_touchBlockTime = 0.0f;
     }
 
     m_breakableEntity = entity;

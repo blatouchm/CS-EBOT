@@ -489,8 +489,6 @@ public:
   uint8_t m_breakableAttackStep{0};    // 0-5: 3x center, 3x travel direction
   float m_breakableAttackTime{0.0f};   // next melee attack time on breakables
   float m_breakableJumpTime{0.0f};      // last attempt to jump over breakable
-  Vector m_touchBlockOrigin{nullvec};  // origin where blocker check started
-  float m_touchBlockTime{0.0f};        // time when blocker check started
   edict_t *m_ignoreEntity{nullptr};    // pointer to entity to ignore
   edict_t *m_buttonEntity{nullptr};    // pointer to button entity
 
@@ -1138,6 +1136,8 @@ extern char *GetModName(void);
 extern char *GetField(const char *string, const int fieldId,
                       const bool endLine = false);
 extern void CreatePath(char *path);
+extern void TryRegisterBreakableDamageHooks(void);
+extern void UnregisterBreakableDamageHooks(void);
 
 extern Vector GetWalkablePosition(const Vector &origin, edict_t *ent = nullptr,
                                   const bool returnNullVec = false,

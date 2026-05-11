@@ -965,8 +965,6 @@ void Bot::NewRound(void)
 
 	m_breakableEntity = nullptr;
 	m_breakableJumpTime = 0.0f;
-	m_touchBlockOrigin = nullvec;
-	m_touchBlockTime = 0.0f;
 	m_buttonEntity = nullptr;
 	m_timeDoorOpen = 0.0f;
 

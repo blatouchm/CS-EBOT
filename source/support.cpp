@@ -24,6 +24,12 @@
 
 #include "../include/core.h"
 
+#ifdef PLATFORM_WIN32
+#include <windows.h>
+#else
+#include <sys/mman.h>
+#endif
+
 //
 // TODO:
 // clean up the code.
@@ -34,6 +40,198 @@ ConVar ebot_ignore_enemies("ebot_ignore_enemies", "0");
 ConVar ebot_zp_delay_custom("ebot_zp_delay_custom", "0.0");
 ConVar ebot_zombie_hp_multiplier("ebot_zombie_hp_multiplier", "1.0");
 ConVar ebot_hp_multiplier_delay("ebot_hp_multiplier_delay", "1.0");
+ConVar ebot_enable_breakables_dmg_multiplier("ebot_enable_breakables_dmg_multiplier", "0");
+ConVar ebot_breakables_dmg_multiplier("ebot_breakables_dmg_multiplier", "1.0");
+
+namespace
+{
+constexpr int BreakableTakeDamageVTableIndex = 12;
+constexpr int CBaseEntityVTableBaseOffset = 0;
+constexpr int CBaseEntityPevOffset = 4;
+
+#ifdef PLATFORM_WIN32
+using TakeDamageFn = int(__thiscall*)(void*, entvars_t*, entvars_t*, float, int);
+#else
+using TakeDamageFn = int(*)(void*, entvars_t*, entvars_t*, float, int);
+#endif
+
+struct BreakableDamageHook
+{
+	void** vtable;
+	TakeDamageFn original;
+	const char* className;
+};
+
+BreakableDamageHook g_breakableDamageHooks[3]{};
+int g_breakableDamageHookCount = 0;
+bool g_breakableDamageHooksChecked = false;
+
+#ifdef PLATFORM_WIN32
+int __fastcall BreakableTakeDamageHook(void* privateData, void*, entvars_t* inflictor,
+	entvars_t* attacker, float damage, int damageBits);
+#else
+int BreakableTakeDamageHook(void* privateData, entvars_t* inflictor,
+	entvars_t* attacker, float damage, int damageBits);
+#endif
+
+void** GetEntityVTable(void* privateData)
+{
+	if (!privateData)
+		return nullptr;
+
+	return *reinterpret_cast<void***>(reinterpret_cast<uint8_t*>(privateData) + CBaseEntityVTableBaseOffset);
+}
+
+BreakableDamageHook* FindBreakableDamageHook(void** vtable)
+{
+	for (int i = 0; i < g_breakableDamageHookCount; i++)
+	{
+		if (g_breakableDamageHooks[i].vtable == vtable)
+			return &g_breakableDamageHooks[i];
+	}
+
+	return nullptr;
+}
+
+bool IsBreakableDamageClass(edict_t* ent)
+{
+	return !FNullEnt(ent) &&
+		(FClassnameIs(ent, "func_breakable") ||
+		 FClassnameIs(ent, "func_pushable") ||
+		 FClassnameIs(ent, "func_wall"));
+}
+
+bool MakeVTableEntryWritable(void** entry)
+{
+#ifdef PLATFORM_WIN32
+	DWORD oldProtect;
+	return !!VirtualProtect(entry, sizeof(void*), PAGE_READWRITE, &oldProtect);
+#else
+	const long pageSize = sysconf(_SC_PAGESIZE);
+	if (pageSize <= 0)
+		return false;
+
+	uintptr_t address = reinterpret_cast<uintptr_t>(entry);
+	void* page = reinterpret_cast<void*>(address & ~(static_cast<uintptr_t>(pageSize) - 1));
+	return mprotect(page, static_cast<size_t>(pageSize), PROT_READ | PROT_WRITE) == 0;
+#endif
+}
+
+bool HookBreakableDamageClass(const char* className)
+{
+	edict_t* ent = nullptr;
+	while (!FNullEnt(ent = FIND_ENTITY_BY_CLASSNAME(ent, className)))
+	{
+		if (!ent->pvPrivateData)
+			continue;
+
+		void** vtable = GetEntityVTable(ent->pvPrivateData);
+		if (!vtable)
+			continue;
+
+		if (FindBreakableDamageHook(vtable))
+			return true;
+
+		if (g_breakableDamageHookCount >= static_cast<int>(ARRAYSIZE_HLSDK(g_breakableDamageHooks)))
+			return false;
+
+		void** entry = &vtable[BreakableTakeDamageVTableIndex];
+		if (!*entry)
+			continue;
+
+		if (!MakeVTableEntryWritable(entry))
+			return false;
+
+		BreakableDamageHook& hook = g_breakableDamageHooks[g_breakableDamageHookCount++];
+		hook.vtable = vtable;
+		hook.original = reinterpret_cast<TakeDamageFn>(*entry);
+		hook.className = className;
+		*entry = reinterpret_cast<void*>(&BreakableTakeDamageHook);
+		return true;
+	}
+
+	return false;
+}
+
+void MultiplyBreakableDamage(void* privateData, entvars_t* attacker, float& damage)
+{
+	if (!ebot_enable_breakables_dmg_multiplier.GetBool() || damage <= 0.0f)
+		return;
+
+	if (!attacker || FNullEnt(attacker->pContainingEntity))
+		return;
+
+	if (!g_botManager->GetBot(attacker->pContainingEntity))
+		return;
+
+	entvars_t* pev = *reinterpret_cast<entvars_t**>(reinterpret_cast<uint8_t*>(privateData) + CBaseEntityPevOffset);
+	if (!pev || !IsBreakableDamageClass(pev->pContainingEntity))
+		return;
+
+	damage *= cmaxf(ebot_breakables_dmg_multiplier.GetFloat(), 0.0f);
+}
+
+#ifdef PLATFORM_WIN32
+int __fastcall BreakableTakeDamageHook(void* privateData, void*, entvars_t* inflictor,
+	entvars_t* attacker, float damage, int damageBits)
+#else
+int BreakableTakeDamageHook(void* privateData, entvars_t* inflictor,
+	entvars_t* attacker, float damage, int damageBits)
+#endif
+{
+	void** vtable = GetEntityVTable(privateData);
+	BreakableDamageHook* hook = FindBreakableDamageHook(vtable);
+	if (!hook || !hook->original)
+		return 0;
+
+	MultiplyBreakableDamage(privateData, attacker, damage);
+	return hook->original(privateData, inflictor, attacker, damage, damageBits);
+}
+}
+
+void TryRegisterBreakableDamageHooks(void)
+{
+	if (g_breakableDamageHooksChecked)
+		return;
+
+	if (!ebot_enable_breakables_dmg_multiplier.GetBool())
+		return;
+
+	g_breakableDamageHooksChecked = true;
+	HookBreakableDamageClass("func_breakable");
+	HookBreakableDamageClass("func_pushable");
+	HookBreakableDamageClass("func_wall");
+}
+
+void UnregisterBreakableDamageHooks(void)
+{
+	if (g_breakableDamageHookCount <= 0)
+	{
+		g_breakableDamageHooksChecked = false;
+		return;
+	}
+
+	void* hookAddress = reinterpret_cast<void*>(&BreakableTakeDamageHook);
+	for (int i = 0; i < g_breakableDamageHookCount; i++)
+	{
+		void** entry = &g_breakableDamageHooks[i].vtable[BreakableTakeDamageVTableIndex];
+		if (*entry != hookAddress)
+			return;
+
+		if (!MakeVTableEntryWritable(entry))
+			return;
+	}
+
+	for (int i = 0; i < g_breakableDamageHookCount; i++)
+	{
+		void** entry = &g_breakableDamageHooks[i].vtable[BreakableTakeDamageVTableIndex];
+		*entry = reinterpret_cast<void*>(g_breakableDamageHooks[i].original);
+	}
+
+	cmemset(g_breakableDamageHooks, 0, sizeof(g_breakableDamageHooks));
+	g_breakableDamageHookCount = 0;
+	g_breakableDamageHooksChecked = false;
+}
 
 void TraceLine(const Vector& start, const Vector& end, const int& ignoreFlags, edict_t* ignoreEntity, TraceResult* ptr)
 {

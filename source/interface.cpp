@@ -2163,6 +2163,8 @@ void ServerDeactivate(void)
 	if (g_gameVersion & Game::Xash)
 		g_botManager->RemoveAll();
 
+	UnregisterBreakableDamageHooks();
+
 	RETURN_META(MRES_IGNORED);
 }
 
@@ -2289,6 +2291,7 @@ inline void JustAStuff(void)
 
 inline void FrameThread(void)
 {
+	TryRegisterBreakableDamageHooks();
 	LoadEntityData();
 	g_botManager->SlowFrameCheck();
 	JustAStuff();
@@ -2714,6 +2717,7 @@ exportc int Meta_Detach(PLUG_LOADTIME now, PL_UNLOAD_REASON reason)
 	}
 
 	g_botManager->RemoveAll(); // kick all bots off this server
+	UnregisterBreakableDamageHooks();
 	return true;
 }
 

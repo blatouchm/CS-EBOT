@@ -198,11 +198,7 @@ void Bot::UpdateProcess(void)
 				ServerPrint("%s is cancelled %s process -> timed out.", GetEntityName(m_myself), GetProcessName(m_currentProcess));
 
 			if (m_currentProcess == Process::DestroyBreakable)
-			{
-				m_touchBlockOrigin = pev ? pev->origin : nullvec;
-				m_touchBlockTime = time2;
 				m_breakableEntity = nullptr;
-			}
 
 			EndProcess(m_currentProcess);
 
