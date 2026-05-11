@@ -938,6 +938,7 @@ void Bot::NewRound(void)
 	m_prevWptIndex[3] = -1;
 
 	m_breakableEntity = nullptr;
+	m_breakableJumpTime = 0.0f;
 	m_touchBlockOrigin = nullvec;
 	m_touchBlockTime = 0.0f;
 	m_buttonEntity = nullptr;

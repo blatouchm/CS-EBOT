@@ -68,6 +68,7 @@ void Bot::DestroyBreakableEnd(void)
 	m_breakableEntity = nullptr;
 	m_breakableAttackStep = 0;
 	m_breakableAttackTime = 0.0f;
+	m_breakableJumpTime = 0.0f;
 }
 
 bool Bot::DestroyBreakableReq(void)

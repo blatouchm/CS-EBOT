@@ -2699,13 +2699,44 @@ void Bot::CheckTouchEntity(edict_t* entity) {
     }
 
     if (!isBlocking) {
+        m_breakableJumpTime = 0.0f;
         m_touchBlockOrigin = nullvec;
         m_touchBlockTime = 0.0f;
         return;
     }
 
     const float time2 = engine->GetTime();
-    if (ebot_touch_breakable_block_check.GetBool()) {
+    const bool canJumpOverBreakableWaypoint =
+        !(m_waypoint.flags & (WAYPOINT_CROUCH | WAYPOINT_LADDER)) &&
+        !IsOnLadder();
+    const bool triedJumpOverBreakableRecently =
+        m_breakableJumpTime > 0.0f && time2 - m_breakableJumpTime < 0.75f;
+
+    if (canJumpOverBreakableWaypoint && triedJumpOverBreakableRecently) {
+        m_buttons |= (IN_DUCK | IN_JUMP);
+        return;
+    }
+
+    if (canJumpOverBreakableWaypoint &&
+        (m_breakableJumpTime <= 0.0f || time2 - m_breakableJumpTime > 2.0f)) {
+        Vector jumpDirection = (m_destOrigin - pev->origin).Normalize2D();
+        if (jumpDirection.IsNull())
+            jumpDirection = (GetBoxOrigin(entity) - pev->origin).Normalize2D();
+
+        if (!jumpDirection.IsNull() && CanJumpUp(jumpDirection)) {
+            m_breakableJumpTime = time2;
+            m_moveSpeed = pev->maxspeed;
+            m_duckTime = time2 + 0.5f;
+            m_buttons |= (IN_DUCK | IN_JUMP);
+            m_jumpTime = time2;
+            TryStartDoubleJump(this, m_waypoint.origin);
+            return;
+        }
+    }
+
+    const float botCenterZ = (pev->absmin.z + pev->absmax.z) * 0.5f;
+    const bool entityAboveBot = entity->v.absmin.z > botCenterZ;
+    if (ebot_touch_breakable_block_check.GetBool() && !entityAboveBot) {
         if (m_touchBlockTime <= 0.0f) {
             m_touchBlockOrigin = pev->origin;
             m_touchBlockTime = time2;
@@ -2729,6 +2760,7 @@ void Bot::CheckTouchEntity(edict_t* entity) {
 
     m_breakableEntity = entity;
     m_breakableOrigin = GetBoxOrigin(entity);
+    m_breakableJumpTime = 0.0f;
 
     if (!SetProcess(Process::DestroyBreakable, "trying to destroy a breakable",
         false, time2 + 20.0f))
