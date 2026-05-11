@@ -33,7 +33,6 @@
 
 ConVar ebot_analyze_distance("ebot_analyze_grid_distance", "40");
 ConVar ebot_analyze_max_jump_height("ebot_analyze_max_jump_height", "62");
-ConVar ebot_max_jump_height("ebot_max_jump_height", "-1"); //should be 65, but many maps has bad waypoints
 ConVar ebot_human_double_jump("ebot_human_double_jump", "0");
 ConVar ebot_zombie_double_jump("ebot_zombie_double_jump", "0");
 ConVar ebot_analyze_auto_start("ebot_analyze_auto_start", "1");
@@ -3616,7 +3615,7 @@ char* Waypoint::GetWaypointInfo(const int16_t id)
 		}
 	}
 	
-	snprintf(messageBuffer, sizeof(messageBuffer), "%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s", 
+		snprintf(messageBuffer, sizeof(messageBuffer), "%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s",
 		(!path->flags && !jumpPoint) ? "(none)" : "", 
 		path->flags & WAYPOINT_LIFT ? "LIFT " : "", 
 		path->flags & WAYPOINT_CROUCH ? "CROUCH " : "", 
@@ -3637,12 +3636,14 @@ char* Waypoint::GetWaypointInfo(const int16_t id)
 		path->flags & WAYPOINT_HMCAMPMESH ? "HUMAN MESH " : "",
 		path->flags & WAYPOINT_ZOMBIEONLY ? "ZOMBIE ONLY " : "",
 		path->flags & WAYPOINT_HUMANONLY ? "HUMAN ONLY " : "",
-		path->flags & WAYPOINT_ZOMBIEPUSH ? "ZOMBIE PUSH " : "",
-		path->flags & WAYPOINT_FALLRISK ? "FALL RISK " : "",
-		path->flags & WAYPOINT_SPECIFICGRAVITY ? "SPECIFIC GRAVITY " : "",
-		path->flags & WAYPOINT_WAITUNTIL ? "WAIT UNTIL GROUND " : "",
-		path->flags & WAYPOINT_HELICOPTER ? "HELICOPTER " : "",
-		path->flags & WAYPOINT_ONLYONE ? "ONLY ONE BOT " : "");
+			path->flags & WAYPOINT_ZOMBIEPUSH ? "ZOMBIE PUSH " : "",
+			path->flags & WAYPOINT_FALLRISK ? "FALL RISK " : "",
+			path->flags & WAYPOINT_SPECIFICGRAVITY ? "SPECIFIC GRAVITY " : "",
+			path->flags & WAYPOINT_LEAVE ? "LEAVE " : "",
+			path->flags & WAYPOINT_WAIT ? "WAIT " : "",
+			path->flags & WAYPOINT_WAITUNTIL ? "WAIT UNTIL GROUND " : "",
+			path->flags & WAYPOINT_HELICOPTER ? "HELICOPTER " : "",
+			path->flags & WAYPOINT_ONLYONE ? "ONLY ONE BOT " : "");
 
 	// return the message buffer
 	return messageBuffer;

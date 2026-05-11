@@ -1,4 +1,28 @@
 #include "../../include/core.h"
+extern ConVar ebot_debug;
+
+static void DebugHumanCampLeaveForZombie(Bot* bot, const char* reason)
+{
+	if (!ebot_debug.GetBool() || !bot || bot->m_isZombieBot || FNullEnt(bot->m_nearestEnemy) || !IsZombieEntity(bot->m_nearestEnemy))
+		return;
+
+	if (!IsValidWaypoint(bot->m_currentWaypointIndex) ||
+		bot->m_currentWaypointIndex != bot->m_zhCampPointIndex)
+		return;
+
+	int16_t zombieWaypoint = -1;
+	const int maxClients = cmin(engine->GetMaxClients(), 32);
+	const int zombieIndex = ENTINDEX(bot->m_nearestEnemy);
+	const int clientIndex = zombieIndex - 1;
+	if (clientIndex >= 0 && clientIndex < maxClients)
+		zombieWaypoint = g_clients[clientIndex].wp;
+
+	const float distance = csqrtf((bot->pev->origin - bot->m_nearestEnemy->v.origin).GetLengthSquared2D());
+	ServerPrint("%s leaves human camp %d because of zombie %s[#%d] wp %d dist %.1f (%s)",
+		GetEntityName(bot->m_myself), bot->m_currentWaypointIndex,
+		GetEntityName(bot->m_nearestEnemy), zombieIndex, zombieWaypoint,
+		distance, reason);
+}
 
 void Bot::DefaultStart(void)
 {
@@ -9,14 +33,6 @@ void Bot::DefaultUpdate(void)
 {
 	if (m_isZombieBot)
 	{
-		if (IsInfectedDelay())
-		{
-			m_moveSpeed = 0.0f;
-			m_strafeSpeed = 0.0f;
-			m_buttons &= ~(IN_ATTACK | IN_ATTACK2);
-			return;
-		}
-
 		// nearest enemy never resets to nullptr, so bot always know where are alive humans
 		if (IsAlive(m_nearestEnemy) && GetTeam(m_nearestEnemy) != m_team)
 		{
@@ -27,8 +43,22 @@ void Bot::DefaultUpdate(void)
 					m_isEnemyReachable = false;
 			}
 
+			bool usingLadderPath = IsOnLadder() ||
+				(IsValidWaypoint(m_currentWaypointIndex) &&
+				 (m_waypoint.flags & WAYPOINT_LADDER));
+			if (!usingLadderPath && g_waypoint && m_navNode.HasNext())
+			{
+				const Path* const nextPath = g_waypoint->GetPath(m_navNode.Next());
+				usingLadderPath = nextPath && ((nextPath->flags & WAYPOINT_LADDER) != 0);
+			}
+
+			const bool enemyInKnifeReach =
+				(pev->origin - m_enemyOrigin).GetLengthSquared2D() < squaredf(64.0f) &&
+				cabsf(pev->origin.z - m_enemyOrigin.z) < 72.0f;
+
 			// path matrix returns 0 if we are on the same waypoint, so basically its reachable
-			if (m_hasEnemiesNear && (Math::FltZero(m_enemyDistance) || m_isEnemyReachable))
+			if (m_hasEnemiesNear && (Math::FltZero(m_enemyDistance) || m_isEnemyReachable) &&
+				(!usingLadderPath || enemyInKnifeReach))
 			{
 				Vector nextVec;
 				nextVec.x = m_enemyOrigin.x + m_nearestEnemy->v.velocity.x;
@@ -151,11 +181,11 @@ void Bot::DefaultUpdate(void)
 	{
 		UpdateLooking();
 
-			if (m_isSlowThink)
-			{
-				FindEnemyEntities();
-				FindFriendsAndEnemiens();
-				CheckReachable();
+		if (m_isSlowThink)
+		{
+			FindEnemyEntities();
+			FindFriendsAndEnemiens();
+			CheckReachable();
 
 				// revert the zoom to normal
 				if (!m_hasEnemiesNear && !m_hasEntitiesNear && UsesSniper() && pev->fov != 90.0f)
@@ -178,7 +208,7 @@ void Bot::DefaultUpdate(void)
 
 						m_navNode.Clear();
 
-						//find new spot
+						// find new spot
 						m_zhCampPointIndex = -1;
 						m_myMeshWaypoint = -1;
 						m_currentGoalIndex = -1;
@@ -194,7 +224,7 @@ void Bot::DefaultUpdate(void)
 						m_waitForLeaveWaypoint = false;
 						m_navNode.Clear();
 
-						//find new spot
+						// find new spot
 						m_zhCampPointIndex = -1;
 						m_myMeshWaypoint = -1;
 						m_currentGoalIndex = -1;
@@ -223,24 +253,41 @@ void Bot::DefaultUpdate(void)
 				if (!m_navNode.HasNext())
 				{
 					// find new safe spot
+					DebugHumanCampLeaveForZombie(this, "reachable zombie");
 					m_zhCampPointIndex = -1;
 					FindGoalHuman();
 
-					// use known waypoint first, then switch to auto
-					FindEscapePath(m_currentWaypointIndex, m_enemyOrigin);
-					m_currentWaypointIndex = -1;
+				// use known waypoint first, then switch to auto
+				FindEscapePath(m_currentWaypointIndex, m_enemyOrigin);
+				m_currentWaypointIndex = -1;
 
-					MoveOut(m_enemyOrigin);
+				MoveOut(m_enemyOrigin);
 
-					if (m_navNode.IsEmpty())
-						m_navNode.Stop();
-				}
-				else if (((pev->origin - g_waypoint->m_paths[m_navNode.First()].origin).GetLengthSquared() > ((m_nearestEnemy->v.origin + m_nearestEnemy->v.velocity) - g_waypoint->m_paths[m_navNode.First()].origin).GetLengthSquared() ||
-					(pev->origin - g_waypoint->m_paths[m_navNode.Next()].origin).GetLengthSquared() > ((m_nearestEnemy->v.origin + m_nearestEnemy->v.velocity) - g_waypoint->m_paths[m_navNode.Next()].origin).GetLengthSquared()) && ::IsInViewCone(pev->origin, m_nearestEnemy))
+				if (m_navNode.IsEmpty())
+					m_navNode.Stop();
+			}
+			else
+			{
+				const int16_t firstIndex = m_navNode.First();
+				const int16_t nextIndex = m_navNode.Next();
+				const Path* const firstPath = IsValidWaypoint(firstIndex) ? g_waypoint->GetPath(firstIndex) : nullptr;
+				const Path* const nextPath = IsValidWaypoint(nextIndex) ? g_waypoint->GetPath(nextIndex) : nullptr;
+				const Vector enemyNextOrigin = m_nearestEnemy->v.origin + m_nearestEnemy->v.velocity;
+
+				if (!firstPath || !nextPath)
 				{
-					// find new safe spot if possible
-					m_zhCampPointIndex = -1;
-					FindGoalHuman();
+					m_navNode.Stop();
+				}
+				else if (((pev->origin - firstPath->origin).GetLengthSquared() >
+					(enemyNextOrigin - firstPath->origin).GetLengthSquared() ||
+					(pev->origin - nextPath->origin).GetLengthSquared() >
+					(enemyNextOrigin - nextPath->origin).GetLengthSquared()) &&
+					::IsInViewCone(pev->origin, m_nearestEnemy))
+					{
+						// find new safe spot if possible
+						DebugHumanCampLeaveForZombie(this, "zombie closer to escape path");
+						m_zhCampPointIndex = -1;
+						FindGoalHuman();
 
 					m_navNode.Clear();
 					FindEscapePath(m_currentWaypointIndex, m_enemyOrigin);
@@ -250,24 +297,19 @@ void Bot::DefaultUpdate(void)
 				else
 				{
 					// if our enemy is closer to this waypoint, just skip it otherwise we will get infected
-					const int16_t firstIndex = m_navNode.First();
-					if (IsValidWaypoint(firstIndex))
-					{
-						const Path* const firstPath = g_waypoint->GetPath(firstIndex);
-						if (firstPath &&
-							(firstPath->origin - m_enemyOrigin).GetLengthSquared() <
-							(firstPath->origin - pev->origin).GetLengthSquared())
-							m_navNode.Shift();
-					}
+					if ((firstPath->origin - m_enemyOrigin).GetLengthSquared() <
+						(firstPath->origin - pev->origin).GetLengthSquared())
+						m_navNode.Shift();
 
 					if (!m_navNode.IsEmpty())
 						FollowPath();
 					else
 						m_navNode.Stop();
+				}
 			}
 
-				return;
-			}
+			return;
+		}
 
 		if (m_currentWaypointIndex == m_zhCampPointIndex && IsValidWaypoint(m_zhCampPointIndex))
 		{
@@ -281,7 +323,7 @@ void Bot::DefaultUpdate(void)
 						m_navNode.Clear();
 						MoveTo(m_nearestFriend->v.origin);
 						return;
-                    }
+					}
 				}
 
 				FollowPath();
@@ -399,7 +441,7 @@ void Bot::DefaultUpdate(void)
 		else
 			FindPath(m_currentWaypointIndex, m_currentGoalIndex);
 	}
-	}
+}
 
 void Bot::DefaultEnd(void)
 {

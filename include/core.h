@@ -151,36 +151,36 @@ enum Visibility : int8_t {
 
 // defines for waypoint flags field (32 bits are available)
 enum WaypointFlag : uint32_t {
-  WAYPOINT_LIFT =
-      (1 << 1), // wait for lift to be down before approaching this waypoint
-  WAYPOINT_CROUCH = (1 << 2),      // must crouch to reach this waypoint
-  WAYPOINT_CROSSING = (1 << 3),    // a target waypoint
-  WAYPOINT_GOAL = (1 << 4),        // mission goal point (bomb, hostage etc.)
-  WAYPOINT_LADDER = (1 << 5),      // waypoint is on ladder
-  WAYPOINT_RESCUE = (1 << 6),      // waypoint is a hostage rescue point
-  WAYPOINT_CAMP = (1 << 7),        // waypoint is a camping point
-  WAYPOINT_LEAVE = (1 << 8),       // release WAIT hold behavior marker
-  WAYPOINT_DJUMP = (1 << 9),       // bot help's another bot (requster) to get
-                                   // somewhere (using djump)
-  WAYPOINT_ZMHMCAMP = (1 << 10),   // bots will camp at this waypoint
-  WAYPOINT_AVOID = (1 << 11),      // bots will avoid these waypoints mostly
-  WAYPOINT_USEBUTTON = (1 << 12),  // bots will use button
-  WAYPOINT_HMCAMPMESH = (1 << 13), // human camp mesh
-  WAYPOINT_ZOMBIEONLY = (1 << 14), // only zombie bots can use this waypoint
-  WAYPOINT_HUMANONLY = (1 << 15),  // only humans bots can use this waypoint
-  WAYPOINT_ZOMBIEPUSH = (1 << 16), // zombies never return back on this waypoint
-  WAYPOINT_FALLRISK =
-      (1 << 17), // bots never do strafing while on this waypoint
-  WAYPOINT_SPECIFICGRAVITY = (1 << 18), // specific jump gravity check for bot
-  WAYPOINT_ONLYONE = (1 << 19), // to avoid multiple bots stuck on same waypoint
-  WAYPOINT_WAITUNTIL = (1 << 20),  // inverse fall check
-  WAYPOINT_HELICOPTER = (1 << 21), // helicopter for zombie escape maps
-  WAYPOINT_WAIT = (1 << 22), // hold position until bot reaches waypoint with LEAVE
-  WAYPOINT_FALLCHECK = (1 << 26),  // bots will check ground
-  WAYPOINT_JUMP = (1 << 27),       // for jump points
-  WAYPOINT_SNIPER = (1 << 28),     // it's a specific sniper point
-  WAYPOINT_TERRORIST = (1 << 29),  // it's a specific terrorist point
-  WAYPOINT_COUNTER = (1 << 30)     // it's a specific ct point
+    WAYPOINT_LIFT =
+    (1 << 1), // wait for lift to be down before approaching this waypoint
+    WAYPOINT_CROUCH = (1 << 2),      // must crouch to reach this waypoint
+    WAYPOINT_CROSSING = (1 << 3),    // a target waypoint
+    WAYPOINT_GOAL = (1 << 4),        // mission goal point (bomb, hostage etc.)
+    WAYPOINT_LADDER = (1 << 5),      // waypoint is on ladder
+    WAYPOINT_RESCUE = (1 << 6),      // waypoint is a hostage rescue point
+    WAYPOINT_CAMP = (1 << 7),        // waypoint is a camping point
+    WAYPOINT_LEAVE = (1 << 8),       // release WAIT hold behavior marker
+    WAYPOINT_DJUMP = (1 << 9),       // bot help's another bot (requster) to get
+    // somewhere (using djump)
+    WAYPOINT_ZMHMCAMP = (1 << 10),   // bots will camp at this waypoint
+    WAYPOINT_AVOID = (1 << 11),      // bots will avoid these waypoints mostly
+    WAYPOINT_USEBUTTON = (1 << 12),  // bots will use button
+    WAYPOINT_HMCAMPMESH = (1 << 13), // human camp mesh
+    WAYPOINT_ZOMBIEONLY = (1 << 14), // only zombie bots can use this waypoint
+    WAYPOINT_HUMANONLY = (1 << 15),  // only humans bots can use this waypoint
+    WAYPOINT_ZOMBIEPUSH = (1 << 16), // zombies never return back on this waypoint
+    WAYPOINT_FALLRISK =
+    (1 << 17), // bots never do strafing while on this waypoint
+    WAYPOINT_SPECIFICGRAVITY = (1 << 18), // specific jump gravity check for bot
+    WAYPOINT_ONLYONE = (1 << 19), // to avoid multiple bots stuck on same waypoint
+    WAYPOINT_WAITUNTIL = (1 << 20),  // inverse fall check
+    WAYPOINT_HELICOPTER = (1 << 21), // helicopter for zombie escape maps
+    WAYPOINT_WAIT = (1 << 22), // hold position until bot reaches waypoint with LEAVE
+    WAYPOINT_FALLCHECK = (1 << 26),  // bots will check ground
+    WAYPOINT_JUMP = (1 << 27),       // for jump points
+    WAYPOINT_SNIPER = (1 << 28),     // it's a specific sniper point
+    WAYPOINT_TERRORIST = (1 << 29),  // it's a specific terrorist point
+    WAYPOINT_COUNTER = (1 << 30)     // it's a specific ct point
 };
 
 // defines for waypoint connection flags field (16 bits are available)
@@ -488,8 +488,8 @@ public:
   edict_t *m_breakableEntity{nullptr}; // pointer to breakable entity
   uint8_t m_breakableAttackStep{0};    // 0-5: 3x center, 3x travel direction
   float m_breakableAttackTime{0.0f};   // next melee attack time on breakables
-  Vector m_touchBlockOrigin{nullvec};   // origin where blocker check started
-  float m_touchBlockTime{0.0f};         // time when blocker check started
+  Vector m_touchBlockOrigin{nullvec};  // origin where blocker check started
+  float m_touchBlockTime{0.0f};        // time when blocker check started
   edict_t *m_ignoreEntity{nullptr};    // pointer to entity to ignore
   edict_t *m_buttonEntity{nullptr};    // pointer to button entity
 
@@ -540,22 +540,15 @@ public:
 
   float m_duckTime{0.0f};       // time to duck
   float m_jumpTime{0.0f};       // time last jump happened
-  float m_ladderJumpPrepTime{0.0f}; // hold look at ladder jump target before jump
+  float m_waterJumpHoldEndTime{0.0f}; // keep IN_JUMP held for water jump
+  float m_ladderJumpNoInputStartTime{0.0f}; // when ladder jump suppress starts
+  float m_ladderJumpNoInputTime{0.0f}; // suppress input after ladder jump
   float m_ladderJumpRetryDeadline{0.0f}; // timeout for reaching ladder jump target
   int16_t m_ladderJumpRetrySource{-1}; // ladder jump source to restart on timeout
   int16_t m_ladderJumpRetryTarget{-1}; // ladder jump target to validate timeout
   bool m_ladderJumpInitialPressUsed{false}; // IN_JUMP pulse already sent in current ladder jump lock
-  float m_waterJumpHoldEndTime{0.0f}; // keep IN_JUMP held for water jump until this time
   float m_ladderGroundStartTime{0.0f}; // timer for invalid ladder current waypoint while on ground
   float m_buttonPushTime{0.0f}; // time to push the button
-  float m_jumpDuckStartTime{0.0f}; // delayed airborne duck start for upward jumps
-  float m_jumpDuckEndTime{0.0f}; // delayed airborne duck end for upward jumps
-  int16_t m_jumpLookTarget{-1}; // fixed jump look target waypoint index
-  bool m_jumpLookTargetActive{false}; // jump look target is currently valid
-  float m_jumpLookDeadline{0.0f}; // timeout for keeping jump look target lock
-  Vector m_debugJumpTarget{nullvec}; // debug marker for computed ground jump target
-  float m_debugJumpTargetTime{0.0f}; // expiry time of jump target marker
-
 
   Vector m_moveAngles{nullvec}; // bot move angles
   float m_lookYawVel{0.0f};     // look yaw velocity
@@ -582,6 +575,8 @@ public:
   bool IsInViewCone(const Vector &origin);
   bool CheckVisibility(edict_t *targetEntity);
   bool CheckGrenadeThrow(edict_t *targetEntity);
+  bool ShouldHoldHumanCampForGrenadeThrow(void);
+  void HoldHumanCampForGrenadeThrow(void);
 
   edict_t *FindNearestButton(const char *className);
   edict_t *FindButton(void);
@@ -599,6 +594,7 @@ public:
     return !!(pev->flags & (FL_ONGROUND | FL_PARTIALGROUND));
   }
   inline bool IsInWater(void) { return pev->waterlevel > 2; }
+  bool IsLadderJumpNoInputActive(const float time);
 
   void SetStrafeSpeed(const Vector &moveDir, const float strafeSpeed);
   void SetStrafeSpeedNoCost(const Vector &moveDir, const float strafeSpeed);
@@ -610,6 +606,8 @@ public:
 
   Vector CheckToss(const Vector &start, const Vector &end);
   Vector CheckThrow(const Vector &start, const Vector &end);
+  Vector CheckBotToss(const Vector &start, const Vector &end);
+  Vector CheckBotThrow(const Vector &start, const Vector &end);
   Vector GetEnemyPosition(void);
   float GetZOffset(const float distance);
 
@@ -629,6 +627,9 @@ public:
   void FindPath(int16_t &srcIndex, int16_t &destIndex);
   void FindShortestPath(int16_t &srcIndex, int16_t &destIndex);
   void FindEscapePath(int16_t &srcIndex, const Vector &dangerOrigin);
+  bool FindUpcomingPathZombieThreat(Vector &threatOrigin,
+                                    int16_t *threatWaypoint = nullptr);
+  bool TryAvoidUpcomingPathZombie(void);
   void CalculatePing(void);
 
 public:
@@ -653,7 +654,7 @@ public:
   bool m_notStarted{false};     // team/class not chosen yet
   bool m_isZombieBot{false};    // checks bot if zombie
   bool m_skipHumanCampThisRound{false}; // human bot ignores camp waypoints for this round
-  float m_infectDelayTime{0.0f}; // delay after human -> zombie infection
+  float m_infectDelayTime{ 0.0f }; // delay after human -> zombie infection
   bool m_jumpReady{false};      // get ready for jump at next frame
   bool m_waitForLanding{false}; // wait until land somewhere
   bool m_waitForLeaveWaypoint{false}; // hold movement after WAIT until LEAVE is reached
@@ -675,8 +676,9 @@ public:
 
   bool m_isSlowThink{false}; // bool for check is slow think? (every second)
   float m_firePause{0.0f};   // time to pause firing
-  float m_wpnTimer{0.0f};    // per-bot weapon switch spam guard
-  float m_randomReloadTimer{0.0f}; // cooldown for random reload without enemies
+  float m_wpnTimer{ 0.0f };    // per-bot weapon switch spam guard
+  float m_randomReloadTimer{ 0.0f }; // cooldown for random reload without enemies
+  float m_pathZombieAvoidTime{0.0f}; // cooldown for human path zombie avoidance
 
   int m_currentWeapon{0}; // one current weapon for each bot
   int m_ammoInClip[Const_MaxWeapons + 1]{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -698,6 +700,7 @@ public:
   Process m_rememberedProcess{Process::Default};
   float m_currentProcessTime{0.0f};
   float m_rememberedProcessTime{0.0f};
+  bool m_suppressCurrentProcessDebug{false};
 
   bool m_hasEnemiesNear{false};
   bool m_hasFriendsNear{false};
@@ -763,7 +766,6 @@ public:
   void FindEnemyEntities(void);
 
   bool IsEnemyViewable(edict_t *player);
-  bool IsInfectedDelay(void);
   bool CheckWaypoint(void);
   bool IsWaitUntilGroundBlocked(void);
 
@@ -1059,7 +1061,7 @@ public:
   Vector GetBottomOrigin(const Path *waypoint);
 
   void Sort(const int16_t self, int16_t index[], uint16_t connectionFlags[] = nullptr,
-            const int16_t size = static_cast<int16_t>(Const_MaxPathIndex));
+      const int16_t size = static_cast<int16_t>(Const_MaxPathIndex));
   bool Download(void);
   bool Load(void);
   void Save(void);
@@ -1082,8 +1084,8 @@ public:
   void DestroyBuckets(void);
   void AddToBucket(const Vector &pos, const int16_t index);
   void EraseFromBucket(const Vector &pos, const int16_t index);
-  void CollectNearbyWaypoints(const Vector &pos, const float radius,
-                              CArray<int16_t> &out);
+  void CollectNearbyWaypoints(const Vector& pos, const float radius,
+      CArray<int16_t>& out);
   CArray<int16_t> &GetWaypointsInBucket(const Vector &pos);
 
   Path *GetPath(const int16_t id);

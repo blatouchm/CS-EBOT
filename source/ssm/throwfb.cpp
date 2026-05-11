@@ -3,10 +3,13 @@
 void Bot::ThrowFBStart(void)
 {
 	SelectWeaponByName("weapon_flashbang");
+	HoldHumanCampForGrenadeThrow();
 }
 
 void Bot::ThrowFBUpdate(void)
 {
+	HoldHumanCampForGrenadeThrow();
+
 	edict_t* ent = nullptr;
 	while (!FNullEnt(ent = FIND_ENTITY_BY_CLASSNAME(ent, "grenade")))
 	{

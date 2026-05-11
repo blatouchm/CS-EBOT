@@ -3,10 +3,13 @@
 void Bot::ThrowHEStart(void)
 {
 	SelectWeaponByName("weapon_hegrenade");
+	HoldHumanCampForGrenadeThrow();
 }
 
 void Bot::ThrowHEUpdate(void)
 {
+	HoldHumanCampForGrenadeThrow();
+
 	edict_t* ent = nullptr;
 	while (!FNullEnt(ent = FIND_ENTITY_BY_CLASSNAME(ent, "grenade")))
 	{

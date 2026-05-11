@@ -131,10 +131,11 @@ void Bot::FindFriendsAndEnemiens(void)
 	{
 		bool needTarget = (!IsAlive(m_nearestEnemy) || GetTeam(m_nearestEnemy) == m_team);
 		edict_t* randomEnemy = nullptr;
-		if (needTarget)
+		const int randomTargetPercent = cclamp(ebot_zombie_random_target_percent.GetInt(), 0, 100);
+
+		if (needTarget && randomTargetPercent > 0)
 		{
-			const int randomTargetPercent = cclamp(ebot_zombie_random_target_percent.GetInt(), 0, 100);
-			if (randomTargetPercent > 0 && chanceof(randomTargetPercent))
+			if (chanceof(randomTargetPercent))
 			{
 				int randomEnemyIndexes[32];
 				int randomEnemyCount = 0;
@@ -151,6 +152,9 @@ void Bot::FindFriendsAndEnemiens(void)
 						continue;
 
 					if (randomClient.ent == m_myself)
+						continue;
+
+					if (randomClient.index == m_index)
 						continue;
 
 					if (!IsAlive(randomClient.ent))
@@ -671,6 +675,8 @@ int Bot::CheckGrenades(void)
 		return Weapon::HeGrenade;
 	else if (pev->weapons & (1 << Weapon::FbGrenade))
 		return Weapon::FbGrenade;
+	else if (pev->weapons & (1 << Weapon::SmGrenade))
+		return Weapon::SmGrenade;
 	return -1;
 }
 

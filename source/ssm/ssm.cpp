@@ -15,7 +15,9 @@ bool Bot::SetProcess(const Process& process, const char* debugnote, const bool r
 {
 	if (m_currentProcess != process && IsReadyForTheProcess(process))
 	{
-		if (ebot_debug.GetBool())
+		const bool suppressDebug = process == Process::Pause && debugnote &&
+			!cstrcmp(debugnote, "waiting a bit for next jump");
+		if (ebot_debug.GetBool() && !suppressDebug)
 			ServerPrint("%s has got a new process %s | process started -> %s", GetEntityName(m_myself), GetProcessName(process), debugnote);
 
 		if (rememberProcess && m_currentProcess > Process::Default && IsReadyForTheProcess(m_currentProcess))
@@ -26,6 +28,7 @@ bool Bot::SetProcess(const Process& process, const char* debugnote, const bool r
 
 		EndProcess(m_currentProcess);
 		m_currentProcess = process;
+		m_suppressCurrentProcessDebug = suppressDebug;
 		StartProcess(process);
 		m_currentProcessTime = time;
 		return true;
@@ -189,31 +192,33 @@ void Bot::UpdateProcess(void)
 			SetProcess(Process::Default, "unknown process", true, time2 + 999999.0f);
 	}
 
-	if (m_currentProcess > Process::Default && m_currentProcessTime < time2)
-	{
-		if (ebot_debug.GetBool())
-			ServerPrint("%s is cancelled %s process -> timed out.", GetEntityName(m_myself), GetProcessName(m_currentProcess));
-
-		if (m_currentProcess == Process::DestroyBreakable)
+		if (m_currentProcess > Process::Default && m_currentProcessTime < time2)
 		{
-			m_touchBlockOrigin = pev ? pev->origin : nullvec;
-			m_touchBlockTime = time2;
-			m_breakableEntity = nullptr;
-		}
+			if (ebot_debug.GetBool() && !m_suppressCurrentProcessDebug)
+				ServerPrint("%s is cancelled %s process -> timed out.", GetEntityName(m_myself), GetProcessName(m_currentProcess));
 
-		EndProcess(m_currentProcess);
+			if (m_currentProcess == Process::DestroyBreakable)
+			{
+				m_touchBlockOrigin = pev ? pev->origin : nullvec;
+				m_touchBlockTime = time2;
+				m_breakableEntity = nullptr;
+			}
 
-		if (m_rememberedProcess != m_currentProcess && m_rememberedProcessTime > time2 && IsReadyForTheProcess(m_rememberedProcess))
+			EndProcess(m_currentProcess);
+
+			if (m_rememberedProcess != m_currentProcess && m_rememberedProcessTime > time2 && IsReadyForTheProcess(m_rememberedProcess))
 		{
 			StartProcess(m_rememberedProcess);
 			m_currentProcess = m_rememberedProcess;
 			m_currentProcessTime = m_rememberedProcessTime;
+			m_suppressCurrentProcessDebug = false;
 			m_rememberedProcessTime = 0.0f;
 			m_rememberedProcess = Process::Default;
 			return;
 		}
 
 		m_currentProcess = Process::Default;
+		m_suppressCurrentProcessDebug = false;
 		StartProcess(Process::Default);
 	}
 }
@@ -222,7 +227,7 @@ void Bot::FinishCurrentProcess(const char* debugNote)
 {
 	if (m_currentProcess > Process::Default)
 	{
-		if (ebot_debug.GetBool())
+		if (ebot_debug.GetBool() && !m_suppressCurrentProcessDebug)
 			ServerPrint("%s is cancelled %s process -> %s", GetEntityName(m_myself), GetProcessName(m_currentProcess), debugNote);
 
 		EndProcess(m_currentProcess);
@@ -232,12 +237,14 @@ void Bot::FinishCurrentProcess(const char* debugNote)
 			StartProcess(m_rememberedProcess);
 			m_currentProcess = m_rememberedProcess;
 			m_currentProcessTime = m_rememberedProcessTime;
+			m_suppressCurrentProcessDebug = false;
 			m_rememberedProcessTime = 0.0f;
 			m_rememberedProcess = Process::Default;
 		}
 
 		StartProcess(Process::Default);
 		m_currentProcess = Process::Default;
+		m_suppressCurrentProcessDebug = false;
 	}
 }
 
