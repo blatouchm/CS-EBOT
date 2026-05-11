@@ -38,6 +38,7 @@ ConVar ebot_check_enemy_rendering("ebot_check_enemy_rendering", "0");
 ConVar ebot_check_enemy_invincibility("ebot_check_enemy_invincibility", "0");
 ConVar ebot_aim_trace_consider_glass("ebot_aim_trace_consider_glass", "0");
 ConVar ebot_human_help_breakables("ebot_human_help_breakables", "1");
+ConVar ebot_zombie_help_breakables("ebot_zombie_help_breakables", "1");
 
 float Bot::InFieldOfView(const Vector &destination) {
   const float absoluteAngle =
@@ -891,6 +892,8 @@ inline int GetMaxClip(const int &id) {
 
 void Bot::CheckSlowThink(void) {
   const float tempTimer = engine->GetTime();
+  extern ConVar ebot_has_semiclip;
+
   if (m_waypointTime < tempTimer) {
     const bool ladderTraverse =
         IsOnLadder() ||
@@ -991,7 +994,6 @@ void Bot::CheckSlowThink(void) {
     if (ebot_human_help_breakables.GetBool() && m_isAlive &&
         (GetCurrentState() == Process::Default ||
          GetCurrentState() == Process::Pause)) {
-      extern ConVar ebot_has_semiclip;
       const int breakableTraceIgnore = ebot_has_semiclip.GetBool()
                                            ? TraceIgnore::Monsters
                                            : TraceIgnore::Nothing;
@@ -1036,6 +1038,42 @@ void Bot::CheckSlowThink(void) {
             break;
         }
       }
+    }
+  }
+
+  if (ebot_zombie_help_breakables.GetBool() && ebot_has_semiclip.GetBool() &&
+      m_isAlive && m_isZombieBot &&
+      (GetCurrentState() == Process::Default ||
+       GetCurrentState() == Process::Pause)) {
+    for (Bot *const &bot : g_botManager->m_bots) {
+      if (!bot || bot == this)
+        continue;
+
+      if (FNullEnt(bot->m_myself) || !bot->pev)
+        continue;
+
+      if (!bot->m_isAlive || !bot->m_isZombieBot || bot->m_team != m_team)
+        continue;
+
+      if (bot->GetCurrentState() != Process::DestroyBreakable ||
+          !bot->DestroyBreakableReq())
+        continue;
+
+      if (FNullEnt(bot->m_breakableEntity) ||
+          (pev->origin - bot->pev->origin).GetLengthSquared() >
+              squaredf(24.0f))
+        continue;
+
+      if (m_ignoreEntity == bot->m_breakableEntity)
+        continue;
+
+      m_breakableEntity = bot->m_breakableEntity;
+      m_breakableOrigin = GetBoxOrigin(bot->m_breakableEntity);
+
+      if (SetProcess(Process::DestroyBreakable,
+                     "helping nearby zombie destroy same breakable", false,
+                     tempTimer + 20.0f))
+        break;
     }
   }
 

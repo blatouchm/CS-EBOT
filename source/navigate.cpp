@@ -2689,14 +2689,11 @@ void Bot::CheckTouchEntity(edict_t* entity) {
         return;
 
     TraceResult tr;
-    const int breakableTraceIgnore = ebot_has_semiclip.GetBool()
-        ? TraceIgnore::Monsters
-        : TraceIgnore::Nothing;
-    TraceLine(EyePosition(), m_destOrigin, TraceIgnore::Monsters, m_myself, &tr);
+    TraceLine(EyePosition(), m_destOrigin, TraceIgnore::Nothing, m_myself, &tr);
     bool isBlocking = (!FNullEnt(tr.pHit) && tr.pHit == entity);
 
     if (!isBlocking) {
-        TraceHull(EyePosition(), m_waypoint.origin, breakableTraceIgnore, head_hull,
+        TraceHull(EyePosition(), m_waypoint.origin, TraceIgnore::Nothing, head_hull,
             m_myself, &tr);
         isBlocking = (!FNullEnt(tr.pHit) && tr.pHit == entity);
     }
@@ -2734,7 +2731,7 @@ void Bot::CheckTouchEntity(edict_t* entity) {
     m_breakableOrigin = GetBoxOrigin(entity);
 
     if (!SetProcess(Process::DestroyBreakable, "trying to destroy a breakable",
-        false, time2 + 10.0f))
+        false, time2 + 20.0f))
         return;
 
     //TODO; doesn't make sense here when this entity blocks the path
