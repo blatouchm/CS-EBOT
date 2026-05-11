@@ -51,7 +51,7 @@ int g_modelIndexLaser = 0;
 int g_modelIndexArrow = 0;
 char g_fakeArgv[256];
 
-CArray<int>g_entities;
+CArray<EnemyEntityEntry>g_entities;
 
 meta_globals_t* gpMetaGlobals = nullptr;
 gamedll_funcs_t* gpGamedllFuncs = nullptr;

@@ -76,6 +76,22 @@ bool Bot::CheckVisibility(edict_t *targetEntity) {
   return false;
 }
 
+bool Bot::CheckEntityVisibility(edict_t *targetEntity) {
+  if (FNullEnt(targetEntity))
+    return false;
+
+  TraceResult tr;
+  const Vector origin = GetBoxOrigin(targetEntity);
+  TraceLine(EyePosition(), origin, TraceIgnore::Everything, m_myself, &tr);
+  if (tr.flFraction > 0.99f ||
+      (!FNullEnt(tr.pHit) && tr.pHit == targetEntity)) {
+    m_entityOrigin = origin;
+    return true;
+  }
+
+  return false;
+}
+
 bool Bot::IsEnemyViewable(edict_t *player) { return CheckVisibility(player); }
 
 // this function checks buttons for use button waypoint
@@ -1199,11 +1215,16 @@ void Bot::UpdateLooking(void) {
 
     if (m_hasEntitiesNear && m_entityDistance < 384.0f &&
         (m_entityDistance < m_enemyDistance || !m_hasEnemiesNear)) {
-      if (!FNullEnt(m_nearestEntity)) {
-        LookAt(GetBoxOrigin(m_nearestEntity), m_nearestEntity->v.velocity);
+      if (!FNullEnt(m_nearestEntity) &&
+          CheckEntityVisibility(m_nearestEntity)) {
+        m_entityDistance = (EyePosition() - m_entityOrigin).GetLength();
+        LookAt(m_entityOrigin, m_nearestEntity->v.velocity);
         FireWeapon(m_entityDistance);
         return;
       }
+
+      m_hasEntitiesNear = false;
+      m_nearestEntity = nullptr;
     }
 
     if (m_hasEnemiesNear && (m_isEnemyReachable || m_enemyDistance < 384.0f) &&
@@ -1222,11 +1243,16 @@ void Bot::UpdateLooking(void) {
 
   if (m_hasEntitiesNear &&
       (m_entityDistance < m_enemyDistance || !m_hasEnemiesNear)) {
-    if (!FNullEnt(m_nearestEntity)) {
-      LookAt(GetBoxOrigin(m_nearestEntity), m_nearestEntity->v.velocity);
+    if (!FNullEnt(m_nearestEntity) &&
+        CheckEntityVisibility(m_nearestEntity)) {
+      m_entityDistance = (EyePosition() - m_entityOrigin).GetLength();
+      LookAt(m_entityOrigin, m_nearestEntity->v.velocity);
       FireWeapon(m_entityDistance);
       return;
     }
+
+    m_hasEntitiesNear = false;
+    m_nearestEntity = nullptr;
   }
 
   if (m_hasEnemiesNear && IsAlive(m_nearestEnemy)) {

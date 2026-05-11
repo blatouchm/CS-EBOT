@@ -231,8 +231,20 @@ NATIVE_FLOAT_2I(Amxx_EBotGetWaypointDistance)
 NATIVE_INT_1I(Amxx_EBotIsValidWaypoint)
 NATIVE_INT_0(Amxx_EBotIsMatrixReady)
 NATIVE_INT_1I(Amxx_EBotIsCamping)
-NATIVE_INT_1I(Amxx_EBotRegisterEnemyEntity)
 NATIVE_INT_1I(Amxx_EBotRemoveEnemyEntity)
+
+static cell AMX_NATIVE_CALL n_Amxx_EBotRegisterEnemyEntity(AMX* amx, cell* params) {
+	using Fn = int (*)(int, int);
+	static Fn fn = nullptr;
+	RESOLVE_OR_RETURN(Fn, fn, "Amxx_EBotRegisterEnemyEntity", 0);
+
+	const int index = static_cast<int>(params[1]);
+	const int targetMask = params[0] >= static_cast<cell>(2 * sizeof(cell))
+		? static_cast<int>(params[2])
+		: 3;
+
+	return static_cast<cell>(fn(index, targetMask));
+}
 
 static cell AMX_NATIVE_CALL n_Amxx_EBotSetLookAt(AMX* amx, cell* params) {
 	using Fn = void (*)(int, Vector, Vector);

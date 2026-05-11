@@ -191,8 +191,16 @@ native Amxx_EBotIsMatrixReady();
 // Returns 1 if bot is camping, else 0.
 native Amxx_EBotIsCamping(index);
 
-// Registers entity as enemy candidate; returns status.
-native Amxx_EBotRegisterEnemyEntity(index);
+// Enemy entity target masks for Amxx_EBotRegisterEnemyEntity().
+//EBOT_ENEMY_ENTITY_HUMAN > only humans will attack this entity
+//EBOT_ENEMY_ENTITY_ZOMBIE > only zombies will attack this entity
+//EBOT_ENEMY_ENTITY_ALL > humans and zombies will attack this entity
+#define EBOT_ENEMY_ENTITY_HUMAN  1
+#define EBOT_ENEMY_ENTITY_ZOMBIE 2
+#define EBOT_ENEMY_ENTITY_ALL    3
+
+// Registers entity as enemy candidate; targetMask selects human/zombie bots. Re-registering updates the mask.
+native Amxx_EBotRegisterEnemyEntity(index, targetMask = EBOT_ENEMY_ENTITY_ALL);
 // Removes entity from enemy candidates; returns status.
 native Amxx_EBotRemoveEnemyEntity(index);
 // Clears all registered enemy entities.

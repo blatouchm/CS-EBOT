@@ -573,6 +573,7 @@ public:
 
   bool IsInViewCone(const Vector &origin);
   bool CheckVisibility(edict_t *targetEntity);
+  bool CheckEntityVisibility(edict_t *targetEntity);
   bool CheckGrenadeThrow(edict_t *targetEntity);
   bool ShouldHoldHumanCampForGrenadeThrow(void);
   void HoldHumanCampForGrenadeThrow(void);

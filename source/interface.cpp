@@ -3589,9 +3589,27 @@ C_DLLEXPORT int Amxx_EBotIsCamping(int index)
 	return 0;
 }
 
-C_DLLEXPORT int Amxx_EBotRegisterEnemyEntity(int index)
+C_DLLEXPORT int Amxx_EBotRegisterEnemyEntity(int index, int targetMask)
 {
-	if (g_entities.Push(index))
+	targetMask &= EnemyEntityTarget_AllBots;
+	if (!targetMask)
+		return 0;
+
+	for (int16_t i = 0; i < g_entities.Size(); i++)
+	{
+		EnemyEntityEntry& enemyEntity = g_entities.Get(i);
+		if (enemyEntity.index == index)
+		{
+			enemyEntity.targetMask = targetMask;
+			return 1;
+		}
+	}
+
+	EnemyEntityEntry enemyEntity;
+	enemyEntity.index = index;
+	enemyEntity.targetMask = targetMask;
+
+	if (g_entities.Push(enemyEntity))
 		return 1;
 
 	return 0;
@@ -3599,8 +3617,14 @@ C_DLLEXPORT int Amxx_EBotRegisterEnemyEntity(int index)
 
 C_DLLEXPORT int Amxx_EBotRemoveEnemyEntity(int index)
 {
-	if (g_entities.Remove(index))
-		return 1;
+	for (int16_t i = 0; i < g_entities.Size(); i++)
+	{
+		if (g_entities.Get(i).index == index)
+		{
+			g_entities.RemoveAt(i);
+			return 1;
+		}
+	}
 
 	return 0;
 }
