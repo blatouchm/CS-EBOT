@@ -23,6 +23,7 @@
 //
 
 #include "../include/core.h"
+#include "../include/radio.h"
 
 // console vars
 ConVar ebot_password("ebot_password", "ebot", VARTYPE_PASSWORD);
@@ -960,6 +961,7 @@ void ClientDisconnect(edict_t* ent)
 	// listen server client disconnects, and we don't want to send him any sort of message then.
 
 	const int clientIndex = ENTINDEX(ent) - 1;
+	RadioClientDisconnected(ent);
 
 	// check if its a bot
 	Bot* bot = g_botManager->GetBot(clientIndex);
@@ -1029,6 +1031,8 @@ void ClientCommand(edict_t* ent)
 	const char* command = CMD_ARGV(0);
 	const char* arg1 = CMD_ARGV(1);
 	const bool hasControlAccess = (ent == g_hostEntity || (g_clients[clientIndex].flags & CFLAG_OWNER));
+
+	RadioClientCommand(ent, command, arg1);
 
 		if (!g_isFakeCommand && !cstricmp(command, "ebot"))
 		{
@@ -1758,6 +1762,12 @@ void ClientCommand(edict_t* ent)
 						reopenWaypointMenu = true;
 						break;
 					}
+					case 8:
+					{
+						g_waypoint->DeleteLastCreatedPath();
+						reopenWaypointMenu = true;
+						break;
+					}
 					case 10:
 					{
 						client->wpMenuBack = nullptr;
@@ -2130,6 +2140,7 @@ void ServerActivate(edict_t* pentEdictList, int edictCount, int clientMax)
 	ServerCommand("exec addons/ebot/maps/%s.cfg", GetMapName());
 
 	g_botManager->InitQuota();
+	RadioResetAll();
 
 	secondTimer = 0.0f;
 	g_fakeCommandTimer = 0.0f;
@@ -2159,6 +2170,7 @@ void ServerDeactivate(void)
 	g_fakeCommandTimer = 0.0f;
 	g_isFakeCommand = false;
 	g_waypointOn = false;
+	RadioResetAll();
 
 	if (g_gameVersion & Game::Xash)
 		g_botManager->RemoveAll();
@@ -2338,6 +2350,7 @@ void StartFrame_Post(void)
 	// during the game, for example making the bots think (yes, because no Think() function exists
 	// for the bots by the MOD side, remember).  Post version called only by metamod.
 
+	RadioUpdate();
 	g_botManager->Think();
 	RETURN_META(MRES_IGNORED);
 }

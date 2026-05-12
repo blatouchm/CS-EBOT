@@ -404,6 +404,7 @@ MenuText g_menus[28] =
 		"5. Jump Path + Outgoing\v"
 		"6. Zombie Boosting Path\v"
 		"7. Delete Path\v"
+		"8. Delete last created path % -> %\v"
 		"\v0. Exit"
 	},
 

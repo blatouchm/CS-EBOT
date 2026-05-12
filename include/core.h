@@ -717,15 +717,19 @@ public:
   edict_t *m_nearestEnemy{nullptr};
   edict_t *m_nearestFriend{nullptr};
   edict_t *m_nearestEntity{nullptr};
+  edict_t *m_radioFollowUser{nullptr};
+  bool m_radioHoldPosition{false};
   Vector m_enemyOrigin{nullvec};
   Vector m_friendOrigin{nullvec};
   Vector m_entityOrigin{nullvec};
+  int16_t m_radioFollowGoalIndex{-1};
   int8_t m_numFriendsNear{0};
 
   int8_t m_senseChance{50};
 
   float m_searchTime{0.0f};
   float m_pauseTime{0.0f};
+  float m_radioFollowRepathTime{0.0f};
 
   float m_frameDelay{0.0f};
   float m_baseUpdate{0.0f};
@@ -762,6 +766,13 @@ public:
   void MoveTo(const Vector &targetPosition, const bool checkStuck = true);
   void MoveOut(const Vector &targetPosition, const bool checkStuck = true);
   void FollowPath(void);
+  bool StartRadioFollow(edict_t *player);
+  bool UpdateRadioFollow(void);
+  void ClearRadioFollow(void);
+  bool StartRadioHoldPosition(void);
+  bool UpdateRadioHoldPosition(void);
+  void ClearRadioHoldPosition(void);
+  bool StartRadioRegroup(void);
   void FindFriendsAndEnemiens(void);
   void FindEnemyEntities(void);
 
@@ -992,6 +1003,9 @@ private:
   Vector m_fallPosition{nullvec};
 
   int16_t m_cacheWaypointIndex{-1};
+  int16_t m_lastCreatedPathFrom{-1};
+  int16_t m_lastCreatedPathTo{-1};
+  bool m_lastCreatedPathBothWays{false};
   int16_t m_lastJumpWaypoint{-1};
   Vector m_lastWaypoint{nullvec};
 
@@ -1007,6 +1021,9 @@ private:
   CArray<int16_t> m_zmHmPoints;
   CArray<int16_t> m_hmMeshPoints;
   CArray<BucketEntry> m_buckets;
+
+  bool DeletePathByIndexExact(int16_t nodeFrom, int16_t nodeTo);
+  void ClearLastCreatedPath(void);
 
 public:
   struct Bucket {
@@ -1055,6 +1072,10 @@ public:
   void DeletePath(void);
   void DeletePathByIndex(int16_t nodeFrom, int16_t nodeTo);
   void CacheWaypoint(void);
+  bool HasCachedWaypoint(void) const { return IsValidWaypoint(m_cacheWaypointIndex); }
+  int16_t GetCachedWaypoint(void) const { return m_cacheWaypointIndex; }
+  bool GetLastCreatedPath(int16_t* nodeFrom, int16_t* nodeTo);
+  void DeleteLastCreatedPath(void);
 
   void DeleteFlags(void);
   void TeleportWaypoint(void);

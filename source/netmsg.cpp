@@ -23,6 +23,7 @@
 //
 
 #include "../include/core.h"
+#include "../include/radio.h"
 
 inline void RoundEndMessage(void)
 {
@@ -39,10 +40,13 @@ inline void RoundEndMessage(void)
 			bot->m_numFriendsLeft = 0;
 			bot->m_isSlowThink = false;
 			bot->m_isEnemyReachable = false;
+			bot->ClearRadioFollow();
+			bot->ClearRadioHoldPosition();
 			bot->m_isZombieBot = true;
 			bot->m_team = Team::Terrorist;
 		}
 	}
+	RadioResetAll();
 }
 
 #define PTR_TO_BYTE(in) *reinterpret_cast<uint8_t*>(in)
@@ -322,9 +326,21 @@ void NetworkMsg::Execute(void* p)
 			// this message sends on death
 			if (m_state == 1)
 			{
-				Bot* victimer = g_botManager->GetBot(PTR_TO_INT(p));
+				const int victimIndex = PTR_TO_INT(p);
+				edict_t* victim = nullptr;
+				if (victimIndex > 0 && victimIndex <= engine->GetMaxClients())
+					victim = INDEXENT(victimIndex);
+
+				//additional check due to many false death messages
+				if (!FNullEnt(victim) && IsAlive(victim))
+					break;
+
+				RadioClientDied(victimIndex);
+				Bot* victimer = g_botManager->GetBot(victimIndex);
 				if (victimer)
 				{
+					victimer->ClearRadioFollow();
+					victimer->ClearRadioHoldPosition();
 					victimer->m_isAlive = false;
 					victimer->m_navNode.Clear();
 					victimer->m_currentGoalIndex = -1;

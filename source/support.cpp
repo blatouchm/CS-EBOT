@@ -526,6 +526,25 @@ void DisplayMenuToClient(edict_t* ent, MenuText* menu)
 	{
 		char tempText[1024];
 		snprintf(tempText, sizeof(tempText), "%s", menu->menuText);
+		if (menu == &g_menus[9] && g_waypoint && g_waypoint->HasCachedWaypoint())
+		{
+			char cachedWaypoint[64];
+			FormatBuffer(cachedWaypoint, "2. Uncache waypoint #%d", g_waypoint->GetCachedWaypoint());
+			Replace2(tempText, "2. Cache waypoint", cachedWaypoint);
+		}
+		else if (menu == &g_menus[20] && g_waypoint)
+		{
+			int16_t nodeFrom = -1;
+			int16_t nodeTo = -1;
+			char lastCreatedPath[96];
+			if (g_waypoint->GetLastCreatedPath(&nodeFrom, &nodeTo))
+				FormatBuffer(lastCreatedPath, "8. Delete last created path %d -> %d", nodeFrom, nodeTo);
+			else
+				FormatBuffer(lastCreatedPath, "8. Delete last created path");
+
+			Replace2(tempText, "8. Delete last created path % -> %", lastCreatedPath);
+		}
+
 		Replace(tempText, '\v', '\n');
 
 		int i;

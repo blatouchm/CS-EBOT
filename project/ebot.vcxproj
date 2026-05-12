@@ -304,6 +304,7 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='EBOT_Release|Win32'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='EBOT_Debug|Win32'">Create</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="..\source\radio.cpp" />
     <ClCompile Include="..\source\support.cpp" />
     <ClCompile Include="..\source\waypoint.cpp" />
   </ItemGroup>
@@ -317,6 +318,7 @@
     <ClInclude Include="..\include\glibc.h" />
     <ClInclude Include="..\include\globals.h" />
     <ClInclude Include="..\include\platform.h" />
+    <ClInclude Include="..\include\radio.h" />
     <ClInclude Include="..\include\resource.h" />
     <ClInclude Include="..\include\runtime.h" />
     <ClInclude Include="..\include\rng.h" />

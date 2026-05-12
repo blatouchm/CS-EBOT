@@ -1140,7 +1140,14 @@ void Bot::CheckSlowThink(void) {
     m_hasFriendsNear = false;
     m_nearestEnemy = nullptr;
   } else {
-    m_team = GetTeam(m_myself);
+    const int currentTeam = GetTeam(m_myself);
+    if (m_team != currentTeam)
+    {
+      ClearRadioFollow();
+      ClearRadioHoldPosition();
+    }
+
+    m_team = currentTeam;
     const bool isZombieEntity = IsZombieEntity(m_myself);
     if (m_isZombieBot != isZombieEntity) {
       const bool wasZombie = m_isZombieBot;

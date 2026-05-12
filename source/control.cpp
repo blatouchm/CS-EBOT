@@ -884,6 +884,8 @@ void Bot::BotSpawned(void)
 	m_currentGoalIndex = -1;
 	m_currentWaypointIndex = -1;
 	m_destOrigin = pev ? pev->origin : nullvec;
+	ClearRadioFollow();
+	ClearRadioHoldPosition();
 
 	m_team = GetTeam(m_myself);
 	m_isAlive = IsAlive(m_myself);

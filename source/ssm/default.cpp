@@ -31,8 +31,36 @@ void Bot::DefaultStart(void)
 
 void Bot::DefaultUpdate(void)
 {
+	if (m_radioHoldPosition)
+	{
+		if (m_isSlowThink && !m_isZombieBot)
+		{
+			FindEnemyEntities();
+			FindFriendsAndEnemiens();
+			CheckReachable();
+		}
+
+		UpdateLooking();
+		UpdateRadioHoldPosition();
+		return;
+	}
+
 	if (m_isZombieBot)
 	{
+		if (UpdateRadioFollow())
+		{
+			if (m_isSlowThink)
+			{
+				m_zhCampPointIndex = -1;
+				FindEnemyEntities();
+				FindFriendsAndEnemiens();
+			}
+			else
+				UpdateLooking();
+
+			return;
+		}
+
 		// nearest enemy never resets to nullptr, so bot always know where are alive humans
 		if (IsAlive(m_nearestEnemy) && GetTeam(m_nearestEnemy) != m_team)
 		{
@@ -156,6 +184,9 @@ void Bot::DefaultUpdate(void)
 					}
 				}
 			}
+
+			if (UpdateRadioFollow())
+				return;
 
 			if (!m_navNode.IsEmpty())
 				FollowPath();
@@ -310,6 +341,9 @@ void Bot::DefaultUpdate(void)
 
 			return;
 		}
+
+		if (UpdateRadioFollow())
+			return;
 
 		if (m_currentWaypointIndex == m_zhCampPointIndex && IsValidWaypoint(m_zhCampPointIndex))
 		{
