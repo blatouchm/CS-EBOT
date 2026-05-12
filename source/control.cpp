@@ -39,9 +39,6 @@ ConVar ebot_keep_slots("ebot_keep_slots", "1");
 ConVar ebot_kill_bots_when_all_humans_dead("ebot_kill_bots_when_all_humans_dead", "0");
 ConVar ebot_rusher_no_camp_percent("ebot_rusher_no_camp_percent", "0");
 
-extern ConVar ebot_zombie_hp_multiplier;
-extern ConVar ebot_hp_multiplier_delay;
-
 // this is a bot manager class constructor
 BotControl::BotControl(void)
 {
@@ -842,7 +839,7 @@ Bot::Bot(edict_t* bot, const int skill, const int personality, const int team, c
 	m_zhCampPointIndex = -1;
 	m_myMeshWaypoint = -1;
 
-	NewRound();
+	BotSpawned();
 	g_fakeCommandTimer = engine->GetTime() + 1.0f;
 }
 
@@ -879,28 +876,8 @@ Bot::~Bot(void)
 	}
 }
 
-void Bot::ScheduleHealthMultiplier(void)
-{
-	m_healthMultiplierTime = engine->GetTime() + cmaxf(ebot_hp_multiplier_delay.GetFloat(), 0.0f);
-}
-
-void Bot::ApplyPendingHealthMultiplier(const float time)
-{
-	if (m_healthMultiplierTime <= 0.0f || m_healthMultiplierTime > time)
-		return;
-
-	m_healthMultiplierTime = 0.0f;
-
-	if (!pev || !m_isAlive || !IsAlive(m_myself) || !m_isZombieBot)
-		return;
-
-	const float multiplier = cmaxf(ebot_zombie_hp_multiplier.GetFloat(), 0.0f);
-
-	pev->health *= multiplier;
-}
-
-// this function initializes a bot after creation & at the start of each round
-void Bot::NewRound(void)
+// this function initializes a bot after creation & at the start of each round & and at respawn
+void Bot::BotSpawned(void)
 {
 	// clear all allocated path nodes
 	m_navNode.Clear();
@@ -927,7 +904,8 @@ void Bot::NewRound(void)
 	m_sidePreference = crandomfloat(-1.0f, 1.0f);
 	const float time2 = engine->GetTime();
 	m_healthMultiplierTime = 0.0f;
-	if (m_isAlive && m_isZombieBot)
+
+	if (m_isZombieBot)
 		ScheduleHealthMultiplier();
 
 	// initialize msec value
@@ -951,9 +929,6 @@ void Bot::NewRound(void)
 	m_nearestEnemy = nullptr;
 	m_enemyOrigin = nullvec;
 	m_enemySeeTime = 0.0f;
-
-	m_team = GetTeam(m_myself);
-	m_isZombieBot = IsZombieEntity(m_myself);
 
 	m_prevTravelFlags = 0;
 	m_currentTravelFlags = 0;
@@ -1001,6 +976,7 @@ void Bot::NewRound(void)
 	m_waypointTime = engine->GetTime() + 0.5f;
 	IgnoreCollisionShortly();
 }
+
 
 // this function kills a bot (not just using ClientKill, but like the CSBot does)
 // base code courtesy of Lazy (from bots-united forums!)

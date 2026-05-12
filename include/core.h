@@ -831,7 +831,7 @@ public:
   inline Vector EyePosition(void) { return pev->origin + pev->view_ofs; };
 
   void LookAt(const Vector &origin, const Vector &velocity = nullvec);
-  void NewRound(void);
+  void BotSpawned(void);
   void ScheduleHealthMultiplier(void);
   void ApplyPendingHealthMultiplier(const float time);
 

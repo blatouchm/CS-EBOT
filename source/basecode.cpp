@@ -40,6 +40,8 @@ ConVar ebot_aim_trace_consider_glass("ebot_aim_trace_consider_glass", "0");
 ConVar ebot_human_help_breakables("ebot_human_help_breakables", "1");
 ConVar ebot_zombie_help_breakables("ebot_zombie_help_breakables", "1");
 
+extern ConVar ebot_zombie_hp_multiplier;
+
 float Bot::InFieldOfView(const Vector &destination) {
   const float absoluteAngle =
       cabsf(AngleMod(pev->v_angle.y) - AngleMod(destination.ToYaw()));
@@ -649,8 +651,15 @@ void Bot::BaseUpdate(void) {
     return;
   }
 
+  const bool wasAlive = m_isAlive;
+  m_isAlive = IsAlive(m_myself);
+  if (!wasAlive && m_isAlive)
+  {
+      BotSpawned();
+      return;
+  }
+
   const float tempTimer = engine->GetTime();
-  ApplyPendingHealthMultiplier(tempTimer);
 
   if (m_baseUpdate < tempTimer) {
     // avoid frame drops
@@ -702,6 +711,7 @@ void Bot::BaseUpdate(void) {
         m_isSlowThink = false;
       else {
         m_isSlowThink = true;
+        
         CheckSlowThink();
 
         float slowThinkMin = 0.9f;
@@ -911,6 +921,8 @@ inline int GetMaxClip(const int &id) {
 void Bot::CheckSlowThink(void) {
   const float tempTimer = engine->GetTime();
   extern ConVar ebot_has_semiclip;
+
+  ApplyPendingHealthMultiplier(tempTimer);
 
   if (m_waypointTime < tempTimer) {
     const bool ladderTraverse =
@@ -1175,7 +1187,6 @@ void Bot::CheckSlowThink(void) {
     }
   }
 
-  m_isAlive = IsAlive(m_myself);
   m_index = GetIndex() - 1;
 
   // zp & biohazard flashlight support
@@ -1820,6 +1831,31 @@ void Bot::TakeBlinded(const Vector &fade, const int alpha) {
   SetProcess(Process::Blind, "i'm blind", false,
              engine->GetTime() + crandomfloat(3.2f, 6.4f));
 }
+
+void Bot::ScheduleHealthMultiplier(void)
+{
+    m_healthMultiplierTime = engine->GetTime() + 0.5f;
+}
+
+void Bot::ApplyPendingHealthMultiplier(const float time)
+{
+    if (m_healthMultiplierTime <= 0.0f || m_healthMultiplierTime > time)
+        return;
+
+    m_healthMultiplierTime = 0.0f;
+
+    if (!pev || !m_isAlive || !IsAlive(m_myself) || !m_isZombieBot)
+    {
+        return;
+    }
+
+    const float multiplier = cmaxf(ebot_zombie_hp_multiplier.GetFloat(), 0.0f);
+    const float currentHealth = pev->health;
+    const float newHealth = currentHealth * multiplier;
+
+    pev->health = newHealth;
+}
+
 
 Vector Bot::CheckToss(const Vector &start, const Vector &stop) {
   Vector end = stop - pev->velocity;

@@ -889,7 +889,7 @@ int Spawn_Post(edict_t* ent)
 	// reset bot
 	Bot* bot = g_botManager->GetBot(ent);
 	if (bot)
-		bot->NewRound();
+		bot->BotSpawned();
 
 	RETURN_META_VALUE(MRES_IGNORED, 0);
 }
@@ -3035,7 +3035,7 @@ C_DLLEXPORT void Amxx_EBotCallNewRound(int index)
 	index--;
 	Bot* amxxbot = g_botManager->GetBot(index);
 	if (amxxbot)
-		amxxbot->NewRound();
+		amxxbot->BotSpawned();
 }
 
 C_DLLEXPORT void Amxx_EBotSetIgnoreClient(int index, int ignore)

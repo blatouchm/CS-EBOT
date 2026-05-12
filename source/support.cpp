@@ -39,7 +39,6 @@
 ConVar ebot_ignore_enemies("ebot_ignore_enemies", "0");
 ConVar ebot_zp_delay_custom("ebot_zp_delay_custom", "0.0");
 ConVar ebot_zombie_hp_multiplier("ebot_zombie_hp_multiplier", "1.0");
-ConVar ebot_hp_multiplier_delay("ebot_hp_multiplier_delay", "1.0");
 ConVar ebot_enable_breakables_dmg_multiplier("ebot_enable_breakables_dmg_multiplier", "0");
 ConVar ebot_breakables_dmg_multiplier("ebot_breakables_dmg_multiplier", "1.0");
 
@@ -871,7 +870,7 @@ void RoundInit(void)
 	for (Bot* const &bot : g_botManager->m_bots)
 	{
 		if (bot)
-			bot->NewRound();
+			bot->BotSpawned();
 	}
 
 	g_roundEnded = false;
