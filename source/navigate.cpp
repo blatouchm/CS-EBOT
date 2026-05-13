@@ -1179,7 +1179,8 @@ void Bot::DoWaypointNav(void) {
       next = true;
   } else {
     const bool exactCrouchWaypoint =
-        (m_waypoint.flags & WAYPOINT_CROUCH) && m_waypoint.radius == 0 &&
+        (m_waypoint.flags & WAYPOINT_CROUCH) &&
+        (pev->flags & FL_DUCKING) && m_waypoint.radius == 0 &&
         !(m_waypoint.flags & (WAYPOINT_LADDER | WAYPOINT_JUMP)) && !jumpLink;
     if (exactCrouchWaypoint) {
       constexpr float exactCrouchReachRadius = 8.0f;

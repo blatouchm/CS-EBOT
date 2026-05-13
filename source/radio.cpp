@@ -726,7 +726,6 @@ bool Bot::UpdateRadioFollow(void)
 		m_moveSpeed = 0.0f;
 		m_strafeSpeed = 0.0f;
 		ResetStuck();
-		LookAt(leaderOrigin, m_radioFollowUser->v.velocity);
 		return true;
 	}
 
@@ -735,7 +734,6 @@ bool Bot::UpdateRadioFollow(void)
 		m_navNode.Clear();
 		m_currentGoalIndex = -1;
 		MoveTo(leaderOrigin);
-		LookAt(leaderOrigin, m_radioFollowUser->v.velocity);
 		return true;
 	}
 
@@ -761,15 +759,12 @@ bool Bot::UpdateRadioFollow(void)
 	if (!m_navNode.IsEmpty())
 	{
 		FollowPath();
-		if (IsVisible(leaderOrigin, m_myself))
-			LookAt(leaderOrigin, m_radioFollowUser->v.velocity);
 		return true;
 	}
 
 	if (IsVisible(leaderOrigin, m_myself))
 	{
 		MoveTo(leaderOrigin);
-		LookAt(leaderOrigin, m_radioFollowUser->v.velocity);
 		return true;
 	}
 
