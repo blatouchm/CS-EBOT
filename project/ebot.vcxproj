@@ -305,6 +305,7 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='EBOT_Debug|Win32'">Create</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="..\source\radio.cpp" />
+    <ClCompile Include="..\source\semiclip.cpp" />
     <ClCompile Include="..\source\support.cpp" />
     <ClCompile Include="..\source\waypoint.cpp" />
   </ItemGroup>

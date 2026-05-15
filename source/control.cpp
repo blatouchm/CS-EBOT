@@ -899,7 +899,7 @@ void Bot::BotSpawned(void)
 	{
 		cmemset(&m_ammoInClip, 0, sizeof(m_ammoInClip));
 		cmemset(&m_ammo, 0, sizeof(m_ammo));
-		m_currentWeapon = 0;
+		m_currentWeapon = 0;;
 	}
 
 	m_numSpawns++;

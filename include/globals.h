@@ -42,10 +42,12 @@ extern float g_fakePingUpdate;
 extern float g_DelayTimer;
 extern float g_fakeCommandTimer;
 
+extern int g_maxClients;
 extern int16_t g_numWaypoints;
 extern int g_gameVersion;
 extern int g_fakeArgc;
 extern int g_storeAddbotVars[4];
+extern int g_playerCurrentWeapon[33];
 extern int g_modelIndexLaser;
 extern int g_modelIndexArrow;
 extern char g_fakeArgv[256];

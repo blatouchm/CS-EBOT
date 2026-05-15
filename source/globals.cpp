@@ -42,10 +42,12 @@ float g_fakePingUpdate = 0.0f;
 float g_DelayTimer = 0.0f;
 float g_fakeCommandTimer = 0.0f;
 
+int g_maxClients = 0;
 int g_storeAddbotVars[4];
 int g_fakeArgc = 0;
 int g_gameVersion = Game::CStrike;
 int16_t g_numWaypoints = 0;
+int g_playerCurrentWeapon[33]{0};
 
 int g_modelIndexLaser = 0;
 int g_modelIndexArrow = 0;
@@ -77,7 +79,7 @@ metamod_funcs_t gMetaFunctionTable =
    nullptr, // pfnGetNewDLLFunctions ()
    nullptr, // pfnGetNewDLLFunctions_Post ()
    GetEngineFunctions, // pfnGetEngineFunctions ()
-   nullptr, // pfnGetEngineFunctions_Post ()
+   GetEngineFunctions_Post, // pfnGetEngineFunctions_Post ()
 };
 
 // metamod plugin information

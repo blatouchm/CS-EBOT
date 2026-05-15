@@ -14,6 +14,7 @@
     <ClCompile Include="..\source\clib.cpp" />
     <ClCompile Include="..\source\tinythread.cpp" />
     <ClCompile Include="..\source\radio.cpp" />
+    <ClCompile Include="..\source\semiclip.cpp" />
     <ClCompile Include="..\source\ssm\ssm.cpp">
       <Filter>SSM</Filter>
     </ClCompile>

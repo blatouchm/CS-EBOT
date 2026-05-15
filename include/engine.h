@@ -1831,6 +1831,7 @@ C_DLLEXPORT int GetEntityAPI2_Post(DLL_FUNCTIONS* functionTable, int* interfaceV
 
 C_DLLEXPORT int GetNewDLLFunctions_Post(NEW_DLL_FUNCTIONS* pNewFunctionTable, int* interfaceVersion);
 C_DLLEXPORT int GetEngineFunctions(enginefuncs_t* pengfuncsFromEngine, int* interfaceVersion);
+C_DLLEXPORT int GetEngineFunctions_Post(enginefuncs_t* pengfuncsFromEngine, int* interfaceVersion);
 
 #define MDLL_FUNC   gpGamedllFuncs->dllapi_table
 
@@ -2769,6 +2770,7 @@ enum NetMsg
 	NETMSG_SENDAUDIO = 17,
 	NETMSG_SAYTEXT = 18,
 	NETMSG_BOTVOICE = 19,
+	NETMSG_TEAMSCORE = 20,
 	NETMSG_NUM = 21
 };
 

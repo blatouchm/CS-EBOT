@@ -23,6 +23,7 @@
 //
 
 #include "../include/core.h"
+#include "../include/radio.h"
 
 #ifdef PLATFORM_WIN32
 #include <windows.h>
@@ -827,22 +828,35 @@ void CreatePath(char* path)
 #endif
 }
 
+void RoundEndMessage(void)
+{
+	if (g_roundEnded)
+		return;
+
+	g_roundEnded = true;
+	g_helicopter = nullptr;
+
+	for (const auto& bot : g_botManager->m_bots)
+	{
+		if (bot)
+		{
+			bot->m_hasEnemiesNear = false;
+			bot->m_hasFriendsNear = false;
+			bot->m_hasEntitiesNear = false;
+			bot->m_numEnemiesLeft = 0;
+			bot->m_numFriendsLeft = 0;
+			bot->m_isSlowThink = false;
+			bot->m_isEnemyReachable = false;
+			bot->ClearRadioFollow();
+			bot->ClearRadioHoldPosition();
+		}
+	}
+	RadioResetAll();
+}
+
 // this is called at the start of each round
 void RoundInit(void)
 {
-	// auto semiclip detection
-	cvar_t* sc = g_engfuncs.pfnCVarGetPointer("semiclip");
-	if (sc && sc->value == 1.0f)
-	{
-		extern ConVar ebot_has_semiclip;
-		ebot_has_semiclip.SetInt(1);
-
-		// this fool value is 0 by default...
-		sc = g_engfuncs.pfnCVarGetPointer("semiclip_knife_trace");
-		if (sc && sc->value != 3.0f)
-			g_engfuncs.pfnCVarSetFloat("semiclip_knife_trace", 3.0f); // fixes bot knife trace
-	}
-
 	if (ebot_zp_delay_custom.GetFloat() > 0.0f)
 		g_DelayTimer = engine->GetTime() + ebot_zp_delay_custom.GetFloat() + 2.2f;
 	else

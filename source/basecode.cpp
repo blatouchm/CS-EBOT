@@ -1152,8 +1152,9 @@ void Bot::CheckSlowThink(void) {
     if (m_isZombieBot != isZombieEntity) {
       const bool wasZombie = m_isZombieBot;
       m_isZombieBot = isZombieEntity;
-      if (!wasZombie && m_isZombieBot)
+      if (!wasZombie && m_isZombieBot) {
         ScheduleHealthMultiplier();
+      }
       else if (!m_isZombieBot)
         m_healthMultiplierTime = 0.0f;
 
@@ -1336,10 +1337,15 @@ void Bot::LookAtAround(void) {
 
     m_pauseTime = engine->GetTime() + 1.0f;
     return;
-  } else if (m_hasFriendsNear && !FNullEnt(m_nearestFriend) &&
-             IsAttacking(m_nearestFriend) &&
-             cstrncmp(STRING(m_nearestFriend->v.viewmodel), "models/v_knife",
-                      14)) {
+  } else if (
+      m_hasFriendsNear && !FNullEnt(m_nearestFriend) &&
+      IsAttacking(m_nearestFriend) &&
+      ((g_botManager->GetBot(m_nearestFriend) &&
+        g_botManager->GetBot(m_nearestFriend)->m_currentWeapon != Weapon::Knife) ||
+       (!g_botManager->GetBot(m_nearestFriend) &&
+        ENTINDEX(m_nearestFriend) > 0 && ENTINDEX(m_nearestFriend) < 33 &&
+        g_playerCurrentWeapon[ENTINDEX(m_nearestFriend)] > 0 &&
+        g_playerCurrentWeapon[ENTINDEX(m_nearestFriend)] != Weapon::Knife))) {
     const Bot *bot = g_botManager->GetBot(m_nearestFriend);
     if (bot) {
       m_lookAt = bot->m_lookAt;

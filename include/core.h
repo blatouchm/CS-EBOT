@@ -918,6 +918,7 @@ public:
 class NetworkMsg : public Singleton<NetworkMsg> {
 private:
   Bot *m_bot{nullptr};
+  int m_index{0};
   int8_t m_state{0};
   int m_message{0};
   int m_registerdMessages[NETMSG_NUM]{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -932,11 +933,13 @@ public:
     m_message = NETMSG_UNDEFINED;
     m_state = 0;
     m_bot = nullptr;
+    m_index = 0;
   };
   void HandleMessageIfRequired(const int messageType, const int requiredType);
 
   void SetMessage(const int message) { m_message = message; }
   void SetBot(Bot *bot) { m_bot = bot; }
+  void SetPlayerIndex(const int index) { m_index = index; }
 
   int GetId(const int messageType) { return m_registerdMessages[messageType]; }
   void SetId(const int messageType, const int messsageIdentifier) {
@@ -1151,6 +1154,18 @@ extern bool FindNearestPlayer(void **holder, edict_t *to,
                               const bool needAlive = false,
                               const bool needDrawn = false);
 
+extern void SemiclipPMMove(struct playermove_s *pmove, qboolean server);
+extern int SemiclipAddToFullPack_Post(struct entity_state_s *state, int e,
+                                      edict_t *ent, edict_t *host,
+                                      int hostflags, int player,
+                                      uint8_t *pSet);
+extern void SemiclipSetPreHookTable(DLL_FUNCTIONS *functionTable);
+extern void SemiclipSetPostHookTable(DLL_FUNCTIONS *functionTable);
+extern void SemiclipSetEnginePostHookTable(enginefuncs_t *functionTable);
+extern void SemiclipUpdateHooks(void);
+extern void SemiclipReset(void);
+extern void SemiclipUpdatePlayerUnstuck(edict_t *player);
+
 extern char *GetEntityName(edict_t *entity);
 extern char *GetMapName(void);
 extern char *GetWaypointDir(void);
@@ -1172,6 +1187,7 @@ extern Vector GetBottomOrigin(edict_t *ent);
 extern Vector GetPlayerHeadOrigin(edict_t *ent);
 
 extern void FreeLibraryMemory(void);
+extern void RoundEndMessage(void);
 extern void RoundInit(void);
 extern void FakeClientCommand(edict_t *fakeClient, const char *format, ...);
 extern void CreateWaypointPath(char *path);

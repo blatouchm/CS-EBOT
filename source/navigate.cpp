@@ -2680,7 +2680,10 @@ void Bot::CheckTouchEntity(edict_t* entity) {
     if (FNullEnt(entity) || !m_isAlive)
         return;
 
-    if (entity == m_ignoreEntity || entity->v.takedamage == DAMAGE_NO)
+    if (entity == m_ignoreEntity)
+        return;
+
+    if (entity->v.takedamage == DAMAGE_NO)
         return;
 
     const float healthLimit = ebot_breakable_health_limit.GetFloat();
@@ -2689,10 +2692,6 @@ void Bot::CheckTouchEntity(edict_t* entity) {
         return;
 
     if (m_currentProcess == Process::DestroyBreakable && m_breakableEntity == entity)
-        return;
-
-    //player is ignored
-    if (entity->v.flags & (FL_CLIENT | FL_FAKECLIENT))
         return;
 
     const bool builtInBreakable =

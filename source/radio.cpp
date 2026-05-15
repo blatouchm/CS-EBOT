@@ -566,7 +566,8 @@ bool Bot::UpdateRadioHoldPosition(void)
 	if (!m_radioHoldPosition)
 		return false;
 
-	if (m_isSlowThink && m_isZombieBot && BotHasVisibleHumanEnemyWithin(this, 300.0f))
+	const float visibleHumanEnemyDistance = 300.0f;
+	if (m_isSlowThink && m_isZombieBot && BotHasVisibleHumanEnemyWithin(this, visibleHumanEnemyDistance))
 	{
 		BotPlayRadioMessage(this, RADIO_ENEMYSPOTTED);
 		ClearRadioHoldPosition();
